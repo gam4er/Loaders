@@ -12,9 +12,59 @@ namespace Loaders
 {
     internal class ObfuscateStringLiterals
     {
-        
-        private static Dictionary<string, string> methodNameMap = new Dictionary<string, string>();
+        public static SyntaxTree AddUsingsNoComments(SyntaxTree syntaxTree)
+        {
+            var root = syntaxTree.GetRoot() as CompilationUnitSyntax;
 
+            // Удаление комментариев
+            var commentRemover = new CommentRemover();
+            root = (CompilationUnitSyntax)commentRemover.Visit(root).NormalizeWhitespace();
+            syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
+
+            // Проверяем наличие директивы using System;
+            var hasUsingSystem = root.Usings
+                                         .Any(u => u.Name.ToString() == "System");
+
+            // Добавляем директиву using System; если её нет
+            if (!hasUsingSystem)
+            {
+                var newUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System")).NormalizeWhitespace();
+                var newUsings = root.Usings.Add(newUsing);
+                root = root.WithUsings(newUsings).NormalizeWhitespace();
+
+                syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
+            }
+
+            // Проверяем наличие директивы using System.Text;
+            var hasUsingSystemText = root.Usings
+                                         .Any(u => u.Name.ToString() == "System.Text");
+
+            // Добавляем директиву using System.Text; если её нет
+            if (!hasUsingSystemText)
+            {
+                var newUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Text")).NormalizeWhitespace();
+                var newUsings = root.Usings.Add(newUsing);
+                root = root.WithUsings(newUsings).NormalizeWhitespace();
+
+                syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
+            }
+
+            // Проверяем наличие директивы using System.Linq;
+            var hasUsingLinq = root.Usings
+                                         .Any(u => u.Name.ToString() == "System.Linq");
+
+            // Добавляем директиву using System.Linq; если её нет
+            if (!hasUsingLinq)
+            {
+                var newUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Linq")).NormalizeWhitespace();
+                var newUsings = root.Usings.Add(newUsing);
+                root = root.WithUsings(newUsings).NormalizeWhitespace();
+
+                syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
+            }
+
+            return syntaxTree;
+        }
         public static SyntaxTree Obfuscate(SyntaxTree tree)
         {
             var root = tree.GetRoot();
@@ -108,38 +158,6 @@ namespace Loaders
                 return base.VisitLiteralExpression(node);
             }
 
-            /*
-            // Avoid obfuscating reserved namespaces
-            public override SyntaxNode VisitNamespaceDeclaration(NamespaceDeclarationSyntax node)
-            {
-                if (reservedNamespaces.Contains(node.Name.ToString().Split('.') [0]))
-                {
-                    return base.VisitNamespaceDeclaration(node);
-                }
-                return base.VisitNamespaceDeclaration(node);
-            }
-            
-            public override SyntaxNode VisitUsingDirective(UsingDirectiveSyntax node)
-            {
-                if (reservedNamespaces.Any(ns => node.Name.ToString().StartsWith(ns)))
-                {
-                    return node;
-                }
-                return base.VisitUsingDirective(node);
-            }
-            
-            public override SyntaxNode VisitMethodDeclaration(MethodDeclarationSyntax node)
-            {
-                if (node.AttributeLists.Any(al => al.Attributes.Any(a => a.Name.ToString() == "DllImport")))
-                {
-                    return node; // Пропускаем методы с атрибутом [DllImport("")]
-                }
-
-                var obfuscatedName = GetObfuscatedName(node.Identifier.Text);
-                methodNameMap [node.Identifier.Text] = obfuscatedName;
-                return base.VisitMethodDeclaration(node.WithIdentifier(SyntaxFactory.Identifier(obfuscatedName))).NormalizeWhitespace();
-            }
-            */
         }
 
     }

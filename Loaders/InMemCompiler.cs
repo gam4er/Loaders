@@ -34,7 +34,6 @@ class InMemCompiler
             return;
         }
 
-        //List<SyntaxTree> syntaxTrees = new List<SyntaxTree>();
         Dictionary<string, string> classMap = new Dictionary<string, string>();
         Dictionary<string, string> methodMap = new Dictionary<string, string>();
         Dictionary<string, SyntaxTree> syntaxTrees = new Dictionary<string, SyntaxTree>();
@@ -42,97 +41,24 @@ class InMemCompiler
         foreach (var csFile in csFiles)
         {
             string sourceCode = File.ReadAllText(csFile);
-            SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
-            var root = syntaxTree.GetRoot() as CompilationUnitSyntax;
+            SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);            
 
             if (csFile.Contains("AssemblyInfo.cs"))
             {
-                syntaxTrees [csFile] = syntaxTree;
+                //syntaxTrees [csFile] = syntaxTree;
                 continue;
             }
 
-            // Удаление комментариев
-            var commentRemover = new CommentRemover();
-            root = (CompilationUnitSyntax)commentRemover.Visit(root).NormalizeWhitespace();
-            syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
-
-            // Проверяем наличие директивы using System;
-            var hasUsingSystem = root.Usings
-                                         .Any(u => u.Name.ToString() == "System");
-
-            // Добавляем директиву using System; если её нет
-            if (!hasUsingSystem)
-            {
-                var newUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System")).NormalizeWhitespace();
-                var newUsings = root.Usings.Add(newUsing);
-                root = root.WithUsings(newUsings).NormalizeWhitespace();
-
-                syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
-            }
-            
-            // Проверяем наличие директивы using System.Text;
-            var hasUsingSystemText = root.Usings
-                                         .Any(u => u.Name.ToString() == "System.Text");
-
-            // Добавляем директиву using System.Text; если её нет
-            if (!hasUsingSystemText)
-            {
-                var newUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Text")).NormalizeWhitespace();
-                var newUsings = root.Usings.Add(newUsing) ;
-                root = root.WithUsings(newUsings).NormalizeWhitespace();
-                
-                syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
-            }
-
-            // Проверяем наличие директивы using System.Linq;
-            var hasUsingLinq = root.Usings
-                                         .Any(u => u.Name.ToString() == "System.Linq");
-
-            // Добавляем директиву using System.Linq; если её нет
-            if (!hasUsingLinq)
-            {
-                var newUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Linq")).NormalizeWhitespace();
-                var newUsings = root.Usings.Add(newUsing);
-                root = root.WithUsings(newUsings).NormalizeWhitespace();
-
-                syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
-            }
-
-            /*
-            Dictionary<string, string> classMapLocal = new Dictionary<string, string>();
-            Dictionary<string, string> methodMapLocal = new Dictionary<string, string>();
-            */
+            syntaxTree = ObfuscateStringLiterals.AddUsingsNoComments(syntaxTree);
             syntaxTree = ObfuscateStringLiterals.Obfuscate(syntaxTree);  // Обфускация
-            /*
-            foreach (var item in classMapLocal)
-                if(!classMap.ContainsKey(item.Key))
-                    classMap.Add(item.Key, item.Value);
 
-            foreach (var item in methodMapLocal)
-                if(!methodMap.ContainsKey(item.Key))
-                    methodMap.Add(item.Key, item.Value);
-            */
             syntaxTrees [csFile] = syntaxTree;
 
             var obfuscatedCode = syntaxTree.GetRoot().ToFullString();
             File.WriteAllText(csFile, obfuscatedCode);
 
         }
-        /*
-        foreach (var csFile in csFiles) 
-        { 
-            var syntaxTree = syntaxTrees [csFile];
-            var root = syntaxTree.GetRoot() as CompilationUnitSyntax;
 
-            // Заменяем имена классов
-            syntaxTree = ObfuscateStringLiterals.ReplaceClassNames(syntaxTree, classMap, methodMap);
-            syntaxTrees [csFile] = syntaxTree;
-
-            var obfuscatedCode = syntaxTree.GetRoot().ToFullString();
-            File.WriteAllText(csFile, obfuscatedCode);
-        }
-        */
-        // Получаем метаданные для всех файлов
         List<MetadataReference> metadataReferences = new List<MetadataReference>();
 
         // Добавляем зависимости из .csproj
