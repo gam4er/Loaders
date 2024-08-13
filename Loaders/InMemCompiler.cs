@@ -45,7 +45,7 @@ class InMemCompiler
 
             if (csFile.Contains("AssemblyInfo.cs"))
             {
-                //syntaxTrees [csFile] = syntaxTree;
+                syntaxTrees [csFile] = syntaxTree;
                 continue;
             }
 
@@ -58,7 +58,26 @@ class InMemCompiler
             File.WriteAllText(csFile, obfuscatedCode);
 
         }
+        
+        ClassesEnum classCollector = new ClassesEnum();
+        foreach (var syntaxTree in syntaxTrees) 
+        { 
+            classCollector.Visit(syntaxTree.Value.GetRoot());
+        }
+        classMap = classCollector.GetClassMap();
 
+        Dictionary<string, SyntaxTree> newST = new Dictionary<string, SyntaxTree>();        
+        ClassObfuscatorAndNormalizer renamer = new ClassObfuscatorAndNormalizer(classMap);
+        foreach (string key in syntaxTrees.Keys)
+        {            
+            var newRoot = renamer.Visit(syntaxTrees[key].GetRoot());
+            newST [key] = syntaxTrees[key].WithRootAndOptions(newRoot, syntaxTrees [key].Options);
+            File.WriteAllText(key, newRoot.ToFullString());
+        }
+
+        syntaxTrees = newST;
+        newST.Clear();
+        
         List<MetadataReference> metadataReferences = new List<MetadataReference>();
 
         // Добавляем зависимости из .csproj
@@ -88,9 +107,7 @@ class InMemCompiler
         var compilation = CSharpCompilation.Create(Path.GetRandomFileName(), options: options);
 
         compilation = compilation.AddSyntaxTrees(syntaxTrees.Select(t => t.Value));
-
         compilation = compilation.AddReferences(metadataReferences);
-
         string outputPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "Output.exe");
 
         using (var ms = new MemoryStream())
