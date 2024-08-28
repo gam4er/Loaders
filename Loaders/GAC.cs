@@ -12,7 +12,6 @@ namespace Loaders
 {
     internal class GAC
     {
-
         public static IEnumerable<UsingDirectiveSyntax> ExtractUsings(SyntaxNode node)
         {
             var usings = new List<UsingDirectiveSyntax>();

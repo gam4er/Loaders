@@ -105,6 +105,23 @@ namespace Loaders
 
             public override SyntaxNode VisitLiteralExpression(LiteralExpressionSyntax node)
             {
+                // Исключение обфускации строк внутри атрибутов, если атрибут находится в пространстве имен System
+                if (node.Parent is AttributeArgumentSyntax attrArgument)
+                {
+                    return base.VisitLiteralExpression(node);
+                }
+
+                // Исключение обфускации строк внутри атрибутов, если атрибут находится в пространстве имен System
+                if (node.Parent is AttributeArgumentSyntax attArgument &&
+                    attArgument.Parent is AttributeArgumentListSyntax argList &&
+                    argList.Parent is AttributeSyntax attr &&
+                    attr.Name is QualifiedNameSyntax qualifiedName &&
+                    qualifiedName.Left.ToString() == "global::System")
+                {
+                    return base.VisitLiteralExpression(node);
+                }
+
+
                 if (node.Parent is EqualsValueClauseSyntax equalsValueClause &&
                     equalsValueClause.Parent is VariableDeclaratorSyntax variableDeclarator &&
                     variableDeclarator.Parent is VariableDeclarationSyntax variableDeclaration &&
@@ -127,7 +144,7 @@ namespace Loaders
                 if (node.Parent is ParameterSyntax parameterSyntax &&
                     parameterSyntax.Default != null &&
                     parameterSyntax.Default.Value == node)
-                {
+                {                    
                     return base.VisitLiteralExpression(node);
                 }
 
@@ -151,7 +168,7 @@ namespace Loaders
                     string xorEncryptedText = XorEncrypt(originalText, key);
                     string base64Key = Convert.ToBase64String(key);
 
-                    var decodeInvocation = SyntaxFactory.ParseExpression($"Encoding.UTF8.GetString(Convert.FromBase64String(\"{xorEncryptedText}\").Select((b, i) => (byte)(b ^ Convert.FromBase64String(\"{base64Key}\")[i % {key.Length}])).ToArray())");
+                    var decodeInvocation = SyntaxFactory.ParseExpression($"Encoding.UTF8.GetString(Convert.FromBase64String(\"{xorEncryptedText}\").Select((bbb, iii) => (byte)(bbb ^ Convert.FromBase64String(\"{base64Key}\")[iii % {key.Length}])).ToArray())");
                     return decodeInvocation;
                 }
 

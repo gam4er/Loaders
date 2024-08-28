@@ -38,7 +38,6 @@ namespace Loaders
         }
     }
 
-
     public class ClassObfuscatorAndNormalizer : CSharpSyntaxRewriter
     {
         private readonly Dictionary<string, string> _classNameMap;
@@ -96,6 +95,10 @@ namespace Loaders
             // Проверяем, есть ли имя в словаре обфусцированных имен
             if (_classNameMap.TryGetValue(node.Identifier.Text, out var newName))
             {
+                if (node.Identifier.Text == "SeatbeltOptions")                  
+                    Console.WriteLine("SeatbeltOptions");
+                
+
                 // Заменяем имя обобщенного типа
                 var newIdentifier = SyntaxFactory.Identifier(newName);
 
@@ -121,51 +124,22 @@ namespace Loaders
         {
             var parent = node.Parent;
 
-            if (parent is AssignmentExpressionSyntax assignment && assignment.Left == node ||
-                parent is ArgumentSyntax argument && argument.Expression == node ||
+            // Если это не обфусцируемый контекст
+            if (IsInReservedNamespace(node) ||
+                parent is AssignmentExpressionSyntax ||
+                parent is ArgumentSyntax ||
                 parent is PropertyDeclarationSyntax ||
                 parent is FieldDeclarationSyntax ||
                 parent is VariableDeclaratorSyntax)
             {
-                // Не обфусцируем, если это переменная, свойство, поле или аргумент метода
                 return node;
             }
 
-            // Обфусцируем вызовы методов и доступ к членам классов
-            if (parent is MemberAccessExpressionSyntax memberAccess)
-            {
-                // Если это доступ к члену класса через точку (например, RegistryUtil.GetBinaryValue)
-                if (_classNameMap.TryGetValue(node.Identifier.Text, out var newName))
-                {
-                    return node.WithIdentifier(SyntaxFactory.Identifier(newName)).NormalizeWhitespace();
-                }
-            }
-
-            // Обфускация имени класса в других случаях
+            // Обфусцируем имя, если оно найдено в словаре
             if (_classNameMap.TryGetValue(node.Identifier.Text, out var newClassName))
             {
                 return node.WithIdentifier(SyntaxFactory.Identifier(newClassName)).NormalizeWhitespace();
             }
-
-            /*
-            // Проверка на случай, когда переменная присваивается сама себе или передается в конструктор
-            bool isAssignmentOrConstructorParameter =
-                parent is AssignmentExpressionSyntax assignment && assignment.Left == node ||
-                parent is ArgumentSyntax argument && argument.Expression == node;
-
-            // Исключаем замену имен переменных, если они присваиваются или передаются в конструктор
-            if (!isAssignmentOrConstructorParameter && _classNameMap.TryGetValue(node.Identifier.Text, out var newName))
-            {
-                if (IsInReservedNamespace(node))
-                {
-                    return node;
-                }
-                // Добавляем пробел после идентификатора, чтобы предотвратить слияние с переменной
-                var newIdentifier = SyntaxFactory.Identifier(newName).WithTrailingTrivia(SyntaxFactory.Space);
-                // Заменяем только имена классов в типах, а не переменные
-                return node.WithIdentifier(SyntaxFactory.Identifier(newName)).NormalizeWhitespace();
-            }
-            */
 
             return base.VisitIdentifierName(node);
         }
@@ -209,25 +183,42 @@ namespace Loaders
 
         public override SyntaxNode VisitAttribute(AttributeSyntax node)
         {
-            // Обфусцируем тип в атрибуте, если он присутствует в словаре
             var nameSyntax = node.Name;
 
             if (nameSyntax is IdentifierNameSyntax identifierNameSyntax &&
                 _classNameMap.TryGetValue(identifierNameSyntax.Identifier.Text, out var newName))
             {
                 var newIdentifier = SyntaxFactory.IdentifierName(newName);
-                return node.WithName(newIdentifier).NormalizeWhitespace();
+                node = node.WithName(newIdentifier).NormalizeWhitespace();
+            }
+
+            var argumentList = node.ArgumentList;
+            if (argumentList != null)
+            {
+                var newArguments = argumentList.Arguments.Select(arg =>
+                {
+                    if (arg.Expression is TypeOfExpressionSyntax typeOfExpression)
+                    {
+                        var typeSyntax = typeOfExpression.Type;
+                        var visitedTypeSyntax = (TypeSyntax)Visit(typeSyntax);
+                        return arg.WithExpression(SyntaxFactory.TypeOfExpression(visitedTypeSyntax));
+                    }
+                    return arg;
+                }).ToArray();
+
+                node = node.WithArgumentList(SyntaxFactory.AttributeArgumentList(SyntaxFactory.SeparatedList(newArguments)));
             }
 
             // Обрабатываем случай с квалифицированным именем
             if (nameSyntax is QualifiedNameSyntax qualifiedNameSyntax)
             {
+                var left = (NameSyntax)Visit(qualifiedNameSyntax.Left);
                 var right = (SimpleNameSyntax)Visit(qualifiedNameSyntax.Right);
 
-                if (_classNameMap.TryGetValue(right.Identifier.Text, out var qualifiedNewName))
+                if (_classNameMap.TryGetValue(right.Identifier.Text, out var newQualifiedName))
                 {
-                    var newQualifiedName = qualifiedNameSyntax.WithRight(SyntaxFactory.IdentifierName(qualifiedNewName));
-                    return node.WithName(newQualifiedName).NormalizeWhitespace();
+                    right = SyntaxFactory.IdentifierName(newQualifiedName);
+                    node = node.WithName(SyntaxFactory.QualifiedName(left, right).NormalizeWhitespace());
                 }
             }
 
@@ -236,6 +227,12 @@ namespace Loaders
 
         public override SyntaxNode VisitQualifiedName(QualifiedNameSyntax node)
         {
+            if (IsInReservedNamespace(node.Left))
+            {
+                // Если левая часть зарезервирована, оставляем имя без изменений
+                return node;
+            }
+
             if (IsInReservedNamespace(node))
             {
                 return node;
@@ -249,7 +246,8 @@ namespace Loaders
                 right = SyntaxFactory.IdentifierName(newName);
             }
 
-            return SyntaxFactory.QualifiedName(left, right).NormalizeWhitespace();
+            //return SyntaxFactory.QualifiedName(left, right).NormalizeWhitespace();
+            return SyntaxFactory.QualifiedName((NameSyntax)Visit(node.Left), right).NormalizeWhitespace();
         }
 
         public override SyntaxNode VisitObjectCreationExpression(ObjectCreationExpressionSyntax node)
@@ -281,7 +279,6 @@ namespace Loaders
 
             return node.WithType(type).NormalizeWhitespace();
         }
-
 
         public override SyntaxNode VisitConstructorDeclaration(ConstructorDeclarationSyntax node)
         {
@@ -343,25 +340,79 @@ namespace Loaders
             return node;
         }
 
-        private bool IsInReservedNamespace(SyntaxNode node)
-        {
-            var parent = node.Parent;
-            while (parent != null)
-            {
-                if (parent is NamespaceDeclarationSyntax namespaceDeclaration)
-                {
-                    return reservedNamespaces.Any(ns => namespaceDeclaration.Name.ToString().StartsWith(ns));
-                }
-                parent = parent.Parent;
-            }
-            return false;
-        }
-
         public override SyntaxNode VisitVariableDeclaration(VariableDeclarationSyntax node)
         {
             var typeSyntax = (TypeSyntax)Visit(node.Type);
 
+            if (typeSyntax != null && _classNameMap.TryGetValue(typeSyntax.ToString(), out var newName))
+            {
+                var newType = SyntaxFactory.IdentifierName(newName).NormalizeWhitespace();
+                return node.WithType(newType).NormalizeWhitespace();
+            }
+
             return node.WithType(typeSyntax).NormalizeWhitespace();
         }
+
+        public override SyntaxNode VisitParenthesizedExpression(ParenthesizedExpressionSyntax node)
+        {
+            // Visit the expression inside the parentheses
+            // Проверяем, есть ли внутри скобок приведение типа
+            if (node.Expression is CastExpressionSyntax castExpression)
+            {
+                var typeSyntax = castExpression.Type;
+
+                // Если тип присутствует в словаре, заменяем его
+                if (_classNameMap.TryGetValue(typeSyntax.ToString(), out var newName))
+                {
+                    Console.WriteLine(typeSyntax.ToString() + "  " + newName);
+                    var newType = SyntaxFactory.IdentifierName(newName).NormalizeWhitespace();
+                    return SyntaxFactory.ParenthesizedExpression(SyntaxFactory.CastExpression(newType, castExpression.Expression));
+                }
+            }
+
+            // Продолжаем нормализацию и обход узла
+            return base.VisitParenthesizedExpression(node).NormalizeWhitespace();
+        }
+
+        public override SyntaxNode VisitBinaryExpression(BinaryExpressionSyntax node)
+        {
+            // Проверяем, если в выражении присутствует строковая конкатенация
+            if (node.OperatorToken.IsKind(SyntaxKind.PlusToken))
+            {
+                // Если одна из частей - строка, обфусцируем её
+                var left = this.Visit(node.Left);
+                var right = this.Visit(node.Right);
+
+                // Собираем новое выражение с учётом скобок
+                return node.WithLeft((ExpressionSyntax)left).WithRight((ExpressionSyntax)right);
+            }
+            return base.VisitBinaryExpression(node);
+        }
+
+        private bool IsInReservedNamespace(SyntaxNode node)
+        {
+            while (node != null)
+            {
+                if (node is NamespaceDeclarationSyntax namespaceDeclaration)
+                {
+                    // Проверяем, начинается ли имя пространства имен с зарезервированных префиксов
+                    return reservedNamespaces.Any(ns => namespaceDeclaration.Name.ToString().StartsWith(ns));
+                }
+                else if (node is QualifiedNameSyntax qualifiedName)
+                {
+                    // Проверяем каждую часть квалифицированного имени
+                    return reservedNamespaces.Any(ns => qualifiedName.ToString().StartsWith(ns));
+                }
+                else if (node is IdentifierNameSyntax identifierName)
+                {
+                    // Проверяем, начинается ли идентификатор с зарезервированного пространства имен
+                    return reservedNamespaces.Any(ns => identifierName.Identifier.Text.StartsWith(ns));
+                }
+
+                node = node.Parent;
+            }
+            return false;
+        }
+
     }
 }
