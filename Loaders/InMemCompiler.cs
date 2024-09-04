@@ -144,6 +144,10 @@ class InMemCompiler
                 //new Bookmark(
                 //new List<AntiVirusDTO>();
                 //new SortedDictionary<uint, ArpTableDTO>();
+                //internal class O_AD14D66A : CommandDTOBase
+                //O_CA3CF3AC CurrentWifiProfileEntry = new WifiProfileEntry
+                //var adapterIdToInterfaceMap = new SortedDictionary<uint, ArpTableDTO>();
+                //var sections = IniFileHelper.ReadSections(classicFilePath);
             }
             try
             {
