@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Xml.Linq;
 
 using Loaders;
@@ -13,12 +14,15 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.VisualStudio.PlatformUI;
 
 class InMemCompiler
 {
     static void Main()
     {
+        //Console.WriteLine( RandomMethodInvoker.RandomMethod());
+
         string sourceFolder = "d:\\Documents\\GitHub\\Seatbelt\\Seatbelt\\";
         //string sourceFolder = "D:\\Documents\\GitHub\\WhiskerOrig\\Whisker\\";
 
@@ -38,10 +42,6 @@ class InMemCompiler
             return;
         }
 
-        
-        //Dictionary<string, string> methodMap = new Dictionary<string, string>();
-        //Dictionary<string, SyntaxTree> syntaxTrees = new Dictionary<string, SyntaxTree>();
-
         foreach (var csFile in csFiles)
         {
             string sourceCode = File.ReadAllText(csFile);
@@ -55,6 +55,25 @@ class InMemCompiler
             var obfuscatedCode = syntaxTree.GetRoot().ToFullString();
             File.WriteAllText(csFile, obfuscatedCode);
         }
+
+
+        foreach (var csFile in csFiles)
+        {
+            string sourceCode = File.ReadAllText(csFile);
+
+            SyntaxTree tree = CSharpSyntaxTree.ParseText(sourceCode);
+            var root = tree.GetRoot();
+
+            var rewriter = new MethodOverloadRewriter();
+            var newRoot = rewriter.Visit(root);
+
+            var formattedRoot = Formatter.Format(newRoot, new AdhocWorkspace());
+            //Console.WriteLine(formattedRoot.ToFullString());
+            File.WriteAllText(csFile, formattedRoot.ToFullString());
+
+        }
+
+        //return;
 
         Dictionary<string, string> classMap = new Dictionary<string, string>();
         ClassesEnum classCollector = new ClassesEnum();
@@ -71,7 +90,7 @@ class InMemCompiler
         classMap.Remove("TextFormatterBase");
         classMap.Remove("CommandOutputTypeAttribute");
         classMap.Remove("CommandOutputType");
-        classMap.Remove("CommandBase");
+        //classMap.Remove("CommandBase");
         //classMap.Remove("CommandDTOBase");
         classMap.Remove("Advapi32");
         classMap.Remove("WindowsFirewallProfileSettings");
@@ -109,67 +128,33 @@ class InMemCompiler
         
         ClassRenamer.RenameClassesInFiles(classMap, csFiles);
 
-        /*
-        Dictionary<string, string> all = classMap;
+        foreach (var csFile in csFiles)
+        {
+            string sourceCode = File.ReadAllText(csFile);
+            foreach (var t in classMap)
+            {
+                string existingStr = "(" + t.Key + ")";
+                string newStr = "(" + t.Value + ")";
+                sourceCode = sourceCode.
+                    Replace(existingStr,newStr).
+                    Replace("List<" + t.Key + ">","List<" + t.Value + ">").
+                    Replace("new "+ t.Key + "(", "new " + t.Value + "(");
 
-        var rem = classMap.Keys.ToList().Where(k => k.Contains("DTO")).ToList();
-        foreach (var r in rem)
-            classMap.Remove(r);
-
-        classMap.Remove("SeatbeltOptions");
-        classMap.Remove("Advapi32");        
-        classMap.Remove("ArpEntry");
-        classMap.Remove("AsrRule");
-        classMap.Remove("AsrSettings");
-        classMap.Remove("AuditEntry");
-        classMap.Remove("AuditPolicyGPO");
-        classMap.Remove("Bookmark");
-        classMap.Remove("CredentialFileInfo");
-        classMap.Remove("DirectoryQuery");
-        classMap.Remove("Download");
-        classMap.Remove("ExplorerRunCommand");
-        classMap.Remove("FileZillaConfig");
-        classMap.Remove("InternetSettingsKey");
-        classMap.Remove("Iphlpapi");
-        classMap.Remove("MasterKey");
-        classMap.Remove("McAfeeSite");
-        classMap.Remove("Module");
-        classMap.Remove("MTPuTTYConfig");
-        classMap.Remove("NetAadJoinInfo");
-        classMap.Remove("OneDriveSyncProvider");
-        classMap.Remove("OutlookDownload");
-        classMap.Remove("PluginAccess");
-        classMap.Remove("RDPClientSettings");
-        classMap.Remove("RDPConnection");
-        classMap.Remove("RDPServerSettings");
-        classMap.Remove("RegistryKeyValue");
-        classMap.Remove("RegistryUtil");
-        classMap.Remove("Rpcrt4");
-        classMap.Remove("SafeRpcBindingHandle");
-        classMap.Remove("SafeRpcInquiryHandle");
-        classMap.Remove("SafeRpcStringHandle");
-        classMap.Remove("ScheduledTaskAction");
-        classMap.Remove("ScheduledTaskPrincipal");
-        classMap.Remove("ScheduledTaskTrigger");
-        classMap.Remove("SuperPuttyConfig");
-        classMap.Remove("TextOutputSink");
-        classMap.Remove("TypedUrl");
-        classMap.Remove("VaultEntry");
-        classMap.Remove("VaultItemValue");
-        classMap.Remove("WifiProfileEntry");
-        classMap.Remove("Win32Error");
-        classMap.Remove("WindowsDefenderSettings");
-        classMap.Remove("WindowsFirewallProfileSettings");
-        classMap.Remove("WindowsFirewallRule");
-        classMap.Remove("Workspace");
-        */
-
-        //var projectPath = @"D:\Documents\GitHub\Seatbelt\Seatbelt.sln";
-        //ClassRenamer.RenameClassesInFiles(classMap, syntaxTrees.Keys.ToList());
-
-        //ClassRenamer.RenameClassesInFiles(all, syntaxTrees.Keys.ToList());
-
-
+                //new ScheduledTaskTrigger();
+                //new Bookmark(
+                //new List<AntiVirusDTO>();
+                //new SortedDictionary<uint, ArpTableDTO>();
+            }
+            try
+            {
+                File.WriteAllText(csFile, sourceCode);
+            }
+            catch (Exception)
+            {
+                Thread.Sleep(5000);
+                File.WriteAllText(csFile, sourceCode);
+            }
+        }
 
         List<MetadataReference> metadataReferences = new List<MetadataReference>();
 

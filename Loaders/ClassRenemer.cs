@@ -177,6 +177,70 @@ namespace Loaders
                         }
                     }
 
+                    // Добавить после существующей обработки "ObjectCreationExpressionSyntax"
+                    // Обработка объявлений переменных с обобщенными типами, такими как List<Workspace>
+                    var variableDeclarations = root.DescendantNodesAndSelf()
+                        .OfType<VariableDeclarationSyntax>()
+                        .ToList();
+
+                    foreach (var variableDeclaration in variableDeclarations)
+                    {
+                        // Обработка типа переменной (например, List<Workspace>)
+                        if (variableDeclaration.Type is GenericNameSyntax genericName &&
+                            genericName.TypeArgumentList.Arguments.Any(arg =>
+                                arg is IdentifierNameSyntax identifierNameSyntax &&
+                                identifierNameSyntax.Identifier.Text == classEntry.Key))
+                        {
+                            var newArguments = genericName.TypeArgumentList.Arguments
+                                .Select(arg =>
+                                {
+                                    if (arg is IdentifierNameSyntax identifierNameSyntax &&
+                                        identifierNameSyntax.Identifier.Text == classEntry.Key)
+                                    {
+                                        // Создаем новый идентификатор с обфусцированным именем
+                                        return SyntaxFactory.IdentifierName(classEntry.Value).NormalizeWhitespace();
+                                    }
+                                    return arg;
+                                }).ToArray();
+
+                            // Создаем новый список аргументов типа
+                            var newTypeArgumentList = SyntaxFactory.TypeArgumentList(SyntaxFactory.SeparatedList(newArguments));
+
+                            // Заменяем тип в GenericNameSyntax на новый обфусцированный тип
+                            var newGenericName = genericName.WithTypeArgumentList(newTypeArgumentList).NormalizeWhitespace();
+
+                            // Обновляем узел объявления переменной с новым обфусцированным типом
+                            var newVariableDeclaration = variableDeclaration.WithType(newGenericName).NormalizeWhitespace();
+                            root = root.ReplaceNode(variableDeclaration, newVariableDeclaration);
+
+                            // Обновляем документ и решение после замены
+                            document = document.WithSyntaxRoot(root);
+                            solution = document.Project.Solution;
+                            project = document.Project;
+                            compilation = project.GetCompilationAsync().Result;
+                        }
+
+                        // Обработка типа переменной (например, Workspace)
+                        if (variableDeclaration.Type is IdentifierNameSyntax identifierName &&
+                            identifierName.Identifier.Text == classEntry.Key)
+                        {
+                            // Создаем новый идентификатор с обфусцированным именем
+                            var newIdentifier = SyntaxFactory.IdentifierName(classEntry.Value);
+
+                            // Обновляем узел объявления переменной с новым обфусцированным типом
+                            var newVariableDeclaration = variableDeclaration.WithType(newIdentifier).NormalizeWhitespace();
+                            root = root.ReplaceNode(variableDeclaration, newVariableDeclaration);
+
+                            // Обновляем документ и решение после замены
+                            document = document.WithSyntaxRoot(root);
+                            solution = document.Project.Solution;
+                            project = document.Project;
+                            compilation = project.GetCompilationAsync().Result;
+                        }
+                    }
+
+
+
                     // Обработка квалифицированных имен и вызовов методов
                     var memberAccessExpressions = root.DescendantNodesAndSelf()
                                                       .OfType<MemberAccessExpressionSyntax>()
@@ -410,12 +474,57 @@ namespace Loaders
                         }
                     }
 
+                    var classDeclarations = root.DescendantNodesAndSelf()
+                            .OfType<ClassDeclarationSyntax>()
+                            .Where(c => c.Identifier.Text == classEntry.Key ||
+                                        c.BaseList?.Types.Any(bt => bt.Type.ToString() == classEntry.Key) == true)
+                            .ToList();
+
+                    foreach (var classDeclaration in classDeclarations)
+                    {
+                        // Замена имени самого класса
+                        if (classDeclaration.Identifier.Text == classEntry.Key)
+                        {
+                            var newIdentifier = SyntaxFactory.Identifier(classEntry.Value);
+                            var newClassDeclaration = classDeclaration.WithIdentifier(newIdentifier).NormalizeWhitespace();
+                            root = root.ReplaceNode(classDeclaration, newClassDeclaration);
+                        }
+
+                        // Замена базового класса в списке наследования
+                        if (classDeclaration.BaseList != null)
+                        {
+                            foreach (var baseType in classDeclaration.BaseList.Types)
+                            {
+                                Console.WriteLine($"Checking base type: {baseType.Type}");
+
+                                if (baseType.Type is IdentifierNameSyntax baseTypeName &&
+                                    baseTypeName.Identifier.Text == classEntry.Key)
+                                {
+                                    Console.WriteLine($"Replacing base type {classEntry.Key} with {classEntry.Value}");
+                                    var newBaseTypeIdentifier = SyntaxFactory.IdentifierName(classEntry.Value).NormalizeWhitespace();
+                                    var newBaseType = baseType.WithType(newBaseTypeIdentifier);
+                                    var newBaseList = classDeclaration.BaseList.ReplaceNode(baseType, newBaseType);
+                                    var newClassDeclaration = classDeclaration.WithBaseList(newBaseList).NormalizeWhitespace();
+                                    root = root.ReplaceNode(classDeclaration, newClassDeclaration);
+                                }
+                            }
+                        }
+
+                        // Обновляем документ и решение после замены
+                        document = document.WithSyntaxRoot(root);
+                        solution = document.Project.Solution;
+                        project = solution.GetProject(project.Id);
+                        compilation = project.GetCompilationAsync().Result;
+                    }
+
                     // Обновление проекта после переименования
                     project = solution.GetProject(project.Id);
                     compilation = project.GetCompilationAsync().Result;
                     
                 }
             }
+
+
 
             // Сохранение изменений в каждом файле
             foreach (var documentId in project.DocumentIds)

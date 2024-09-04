@@ -38,7 +38,6 @@ namespace Loaders
             // Проверяем наличие директивы using System.Text;
             var hasUsingSystemText = root.Usings
                                          .Any(u => u.Name.ToString() == "System.Text");
-
             // Добавляем директиву using System.Text; если её нет
             if (!hasUsingSystemText)
             {
@@ -52,11 +51,24 @@ namespace Loaders
             // Проверяем наличие директивы using System.Linq;
             var hasUsingLinq = root.Usings
                                          .Any(u => u.Name.ToString() == "System.Linq");
-
             // Добавляем директиву using System.Linq; если её нет
             if (!hasUsingLinq)
             {
                 var newUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Linq")).NormalizeWhitespace();
+                var newUsings = root.Usings.Add(newUsing);
+                root = root.WithUsings(newUsings).NormalizeWhitespace();
+
+                syntaxTree = syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
+            }
+
+
+            // Проверяем наличие директивы using System.Threading.Tasks;
+            var hasUsingThreadingTasks = root.Usings
+                                         .Any(u => u.Name.ToString() == "System.Threading.Tasks");
+            // Добавляем директиву using System.Threading.Tasks; если её нет
+            if (!hasUsingThreadingTasks)
+            {
+                var newUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Threading.Tasks")).NormalizeWhitespace();
                 var newUsings = root.Usings.Add(newUsing);
                 root = root.WithUsings(newUsings).NormalizeWhitespace();
 

@@ -252,16 +252,24 @@ namespace Loaders
 
         public override SyntaxNode VisitObjectCreationExpression(ObjectCreationExpressionSyntax node)
         {
-            // Обрабатываем тип, используемый в выражении создания объекта
+            // Обработка типа, используемого в выражении создания объекта
             var type = (TypeSyntax)Visit(node.Type);
 
-            // Заменяем аргументы типа в случае использования обобщенного типа
+            if (type is IdentifierNameSyntax identifierName &&
+                _classNameMap.TryGetValue(identifierName.Identifier.Text, out var newName))
+            {
+                // Замена имени типа на обфусцированное имя
+                var newType = SyntaxFactory.IdentifierName(newName).NormalizeWhitespace();
+                return node.WithType(newType).NormalizeWhitespace();
+            }
+
+            // Обработка обобщенного типа (например, List<Workspace>)
             if (type is GenericNameSyntax genericName)
             {
                 var newIdentifier = genericName.Identifier;
-                if (_classNameMap.TryGetValue(newIdentifier.Text, out var newName))
+                if (_classNameMap.TryGetValue(newIdentifier.Text, out var newName1))
                 {
-                    newIdentifier = SyntaxFactory.Identifier(newName);
+                    newIdentifier = SyntaxFactory.Identifier(newName1);
                 }
 
                 var typeArguments = genericName.TypeArgumentList.Arguments.Select(typeArg =>
@@ -279,7 +287,6 @@ namespace Loaders
 
             return node.WithType(type).NormalizeWhitespace();
         }
-
         public override SyntaxNode VisitConstructorDeclaration(ConstructorDeclarationSyntax node)
         {
             if (_classNameMap.TryGetValue(node.Identifier.Text, out var newName))
