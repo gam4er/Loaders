@@ -1,19 +1,12 @@
-﻿using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Loaders
+namespace Loaders.Obfuscation.Rewriters
 {
     public class CommentRemover : CSharpSyntaxRewriter
     {
         public override SyntaxTrivia VisitTrivia(SyntaxTrivia trivia)
         {
-            // Удаляем однострочные и многострочные комментарии
             if (trivia.IsKind(SyntaxKind.SingleLineCommentTrivia) ||
                 trivia.IsKind(SyntaxKind.MultiLineCommentTrivia) ||
                 trivia.IsKind(SyntaxKind.DocumentationCommentExteriorTrivia) ||
@@ -24,10 +17,10 @@ namespace Loaders
                 trivia.IsKind(SyntaxKind.EndRegionDirectiveTrivia) ||
                 trivia.IsKind(SyntaxKind.RegionKeyword) ||
                 trivia.IsKind(SyntaxKind.EndRegionKeyword))
-
             {
                 return default;
             }
+
             return base.VisitTrivia(trivia);
         }
     }
