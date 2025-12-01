@@ -27,11 +27,19 @@ namespace Loaders.Obfuscation.Rewriters
 
         public override SyntaxNode VisitClassDeclaration(ClassDeclarationSyntax node)
         {
+            string newName = "";
             var updatedNode = node;
-            if (_classNameMap.TryGetValue(node.Identifier.Text, out var newName))
+
+            if (_classNameMap.TryGetValue(node.Identifier.Text, out newName))
             {
                 updatedNode = updatedNode.WithIdentifier(SyntaxFactory.Identifier(newName));
             }
+#if DEBUG
+            if (newName == "Bookmark")
+            {
+                Console.WriteLine("Bookmark");
+            }
+#endif
 
             var updatedAttributes = node.AttributeLists
                 .Select(attributeList => (AttributeListSyntax)Visit(attributeList));
@@ -68,6 +76,14 @@ namespace Loaders.Obfuscation.Rewriters
         public override SyntaxNode VisitGenericName(GenericNameSyntax node)
         {
             var identifier = node.Identifier.Text;
+
+#if DEBUG
+            if (identifier == "Bookmark")
+            {
+                Console.WriteLine("Bookmark");
+            }
+#endif
+
             var updatedArguments = node.TypeArgumentList.Arguments.Select(arg => (TypeSyntax)Visit(arg));
             var updatedList = SyntaxFactory.TypeArgumentList(SyntaxFactory.SeparatedList(updatedArguments));
 
