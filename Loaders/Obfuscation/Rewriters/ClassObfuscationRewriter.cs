@@ -100,9 +100,10 @@ namespace Loaders.Obfuscation.Rewriters
         public override SyntaxNode VisitObjectCreationExpression(ObjectCreationExpressionSyntax node)
         {
             var updatedType = (TypeSyntax)Visit(node.Type);
+            var updatedArgumentList = (ArgumentListSyntax?)Visit(node.ArgumentList);
+            var updatedInitializer = (InitializerExpressionSyntax?)Visit(node.Initializer);
 
-            if (updatedType is GenericNameSyntax genericType &&
-                string.Equals(genericType.Identifier.Text, /*nameof(List)*/ "List", StringComparison.Ordinal))
+            if (updatedType is GenericNameSyntax genericType)
             {
                 var updatedArguments = genericType.TypeArgumentList.Arguments
                     .Select(argument => (TypeSyntax)Visit(argument));
@@ -112,7 +113,11 @@ namespace Loaders.Obfuscation.Rewriters
                 updatedType = genericType.WithTypeArgumentList(updatedTypeArgumentList);
             }
 
-            return node.WithType(updatedType).WithTriviaFrom(node);
+            return node
+                .WithType(updatedType)
+                .WithArgumentList(updatedArgumentList)
+                .WithInitializer(updatedInitializer)
+                .WithTriviaFrom(node);
         }
 
         public override SyntaxNode VisitConstructorDeclaration(ConstructorDeclarationSyntax node)
