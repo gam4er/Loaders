@@ -98,7 +98,7 @@ namespace Loaders.Obfuscation.Services
             {
                 var code = File.ReadAllText(filePath);
                 project = workspace
-                    .AddDocument(project.Id, Path.GetFileName(filePath), SourceText.From(code), filePath: filePath)
+                    .AddDocument(project.Id, Path.GetFileName(filePath), SourceText.From(code)/*, filePath: filePath*/)
                     .Project;
             }
 
