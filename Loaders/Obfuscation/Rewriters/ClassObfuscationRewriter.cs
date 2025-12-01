@@ -22,7 +22,7 @@ namespace Loaders.Obfuscation.Rewriters
         private readonly IReadOnlyDictionary<string, string> _classNameMap;
 
         private static readonly object LogLock = new();
-        private static readonly string LogFilePath = Path.Combine(AppContext.BaseDirectory, "obf.log");
+        private static readonly string LogFilePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "obf.log"));
 
         private static void LogDebug(string message)
         {
@@ -30,6 +30,12 @@ namespace Loaders.Obfuscation.Rewriters
 
             lock (LogLock)
             {
+                var logDirectory = Path.GetDirectoryName(LogFilePath);
+                if (!string.IsNullOrEmpty(logDirectory))
+                {
+                    Directory.CreateDirectory(logDirectory);
+                }
+
                 File.AppendAllText(LogFilePath, formatted);
             }
         }
