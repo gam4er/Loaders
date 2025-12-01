@@ -168,6 +168,9 @@ internal static class InMemCompiler
         }
     }
 
+    private static readonly string CompilationErrorsLogPath =
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "compilation-errors.log"));
+
     private static void Compile(IEnumerable<string> csFiles, IReadOnlyList<string> references)
     {
         var metadataReferences = new List<MetadataReference>();
@@ -212,9 +215,18 @@ internal static class InMemCompiler
         {
             IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error);
             Console.WriteLine($"Compilation failed occurs {failures.Count()} errors");
+
+            var compilationErrorsDirectory = Path.GetDirectoryName(CompilationErrorsLogPath);
+            if (!string.IsNullOrEmpty(compilationErrorsDirectory))
+            {
+                Directory.CreateDirectory(compilationErrorsDirectory);
+            }
+
+            using var logWriter = new StreamWriter(CompilationErrorsLogPath, append: false);
             foreach (Diagnostic diagnostic in failures)
             {
                 Console.Error.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);
+                logWriter.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);
             }
             return;
         }
