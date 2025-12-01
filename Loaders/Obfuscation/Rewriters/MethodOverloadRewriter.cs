@@ -38,7 +38,7 @@ namespace Loaders.Obfuscation.Rewriters
         {
             return method.AttributeLists
                 .SelectMany(attrList => attrList.Attributes)
-                .Any(attr => attr.Name.ToString().Contains("DllImport", StringComparison.Ordinal));
+                .Any(attr => attr.Name.ToString().Contains("DllImport"));
         }
 
         private bool MethodWithSameSignatureExists(ClassDeclarationSyntax classDeclaration, MethodDeclarationSyntax method)

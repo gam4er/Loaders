@@ -27,8 +27,10 @@ namespace Loaders.Obfuscation.Services
             var project = CreateProject(workspace, filePaths);
             var solution = project.Solution;
 
-            foreach (var (originalName, obfuscatedName) in classMap)
+            foreach (var kvp in classMap)
             {
+                var originalName = kvp.Key;
+                var obfuscatedName = kvp.Value;
                 foreach (var documentId in project.DocumentIds)
                 {
                     var document = solution.GetDocument(documentId);
@@ -95,7 +97,7 @@ namespace Loaders.Obfuscation.Services
             foreach (var filePath in filePaths)
             {
                 var code = File.ReadAllText(filePath);
-                project = workspace.AddDocument(project.Id, Path.GetFileName(filePath), SourceText.From(code), filePath: filePath)
+                project = workspace.AddDocument(project.Id, Path.GetFileName(filePath), SourceText.From(code)/*, filePath: filePath*/)
                     .Project;
             }
 
