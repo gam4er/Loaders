@@ -332,6 +332,8 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <AdditionalFiles Include="ChromiumBookmarksCommand.cs" />
+    <AdditionalFiles Include="ChromiumBookmarksCommand_obf.cs" />
     <Compile Include="InMemCompiler.cs" />
     <Compile Include="Obfuscation\Rewriters\ClassCollectionRewriter.cs" />
     <Compile Include="Obfuscation\Rewriters\ClassObfuscationRewriter.cs" />
@@ -347,6 +349,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <None Include="compilation-errors.log" />
+    <None Include="obf.log" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

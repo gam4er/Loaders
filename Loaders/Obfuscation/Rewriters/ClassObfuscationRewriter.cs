@@ -296,12 +296,12 @@ namespace Loaders.Obfuscation.Rewriters
         private bool IsInReservedContext(IdentifierNameSyntax node)
         {
             var parent = node.Parent;
+
+            // Keep namespaces and attribute-related identifiers safe, but allow most other contexts
+            // so class/type identifiers used in expressions, variables, arguments, etc. can be renamed.
             return IsReservedNamespace(node) ||
-                   parent is AssignmentExpressionSyntax ||
-                   parent is ArgumentSyntax ||
-                   parent is PropertyDeclarationSyntax ||
-                   parent is FieldDeclarationSyntax ||
-                   parent is VariableDeclaratorSyntax;
+                   parent is AttributeSyntax ||
+                   parent is AttributeArgumentSyntax;
         }
 
         private static bool IsTypeContext(SyntaxNode node)
