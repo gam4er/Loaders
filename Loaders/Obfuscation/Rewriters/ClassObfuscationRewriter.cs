@@ -20,6 +20,13 @@ namespace Loaders.Obfuscation.Rewriters
 
         private readonly IReadOnlyDictionary<string, string> _classNameMap;
 
+        private static void LogDebug(string message)
+        {
+#if DEBUG
+            Console.WriteLine($"[ClassObfuscationRewriter] {message}");
+#endif
+        }
+
         public ClassObfuscationRewriter(IReadOnlyDictionary<string, string> classNameMap)
         {
             _classNameMap = classNameMap ?? throw new ArgumentNullException(nameof(classNameMap));
@@ -65,10 +72,24 @@ namespace Loaders.Obfuscation.Rewriters
 
         public override SyntaxNode VisitIdentifierName(IdentifierNameSyntax node)
         {
-            if (IsInReservedContext(node) || !_classNameMap.TryGetValue(node.Identifier.Text, out var newClassName))
+            var identifier = node.Identifier.Text;
+
+            if (IsInReservedContext(node))
+            {
+                if (_classNameMap.ContainsKey(identifier))
+                {
+                    LogDebug($"Skipping identifier '{identifier}' because it is in a reserved context ({node.Parent?.Kind()}).");
+                }
+
+                return base.VisitIdentifierName(node);
+            }
+
+            if (!_classNameMap.TryGetValue(identifier, out var newClassName))
             {
                 return base.VisitIdentifierName(node);
             }
+
+            LogDebug($"Renaming identifier '{identifier}' to '{newClassName}'.");
 
             return SyntaxFactory.IdentifierName(newClassName).WithTriviaFrom(node);
         }
@@ -77,19 +98,18 @@ namespace Loaders.Obfuscation.Rewriters
         {
             var identifier = node.Identifier.Text;
 
-#if DEBUG
-            if (identifier == "Bookmark")
-            {
-                Console.WriteLine("Bookmark");
-            }
-#endif
-
             var updatedArguments = node.TypeArgumentList.Arguments.Select(arg => (TypeSyntax)Visit(arg));
             var updatedList = SyntaxFactory.TypeArgumentList(SyntaxFactory.SeparatedList(updatedArguments));
 
             if (_classNameMap.TryGetValue(identifier, out var newName))
             {
+                LogDebug($"Renaming generic identifier '{identifier}' to '{newName}'.");
                 return node.WithIdentifier(SyntaxFactory.Identifier(newName)).WithTypeArgumentList(updatedList);
+            }
+
+            if (node.TypeArgumentList.Arguments.Any(arg => ContainsMappedIdentifier(arg)))
+            {
+                LogDebug($"Visited generic '{identifier}' with updated type arguments: {updatedList.ToFullString()}.");
             }
 
             return node.WithTypeArgumentList(updatedList);
@@ -97,16 +117,18 @@ namespace Loaders.Obfuscation.Rewriters
 
         public override SyntaxNode VisitQualifiedName(QualifiedNameSyntax node)
         {
-            if (IsReservedNamespace(node.Left) || IsReservedNamespace(node))
-            {
-                return node;
-            }
-
             var left = (NameSyntax)Visit(node.Left);
             var right = (SimpleNameSyntax)Visit(node.Right);
 
+            if (IsReservedNamespace(node.Left) || IsReservedNamespace(node))
+            {
+                LogDebug($"Encountered reserved namespace '{node}'. Left visited as '{left}', right visited as '{right}'.");
+                return SyntaxFactory.QualifiedName(left, right).WithTriviaFrom(node);
+            }
+
             if (_classNameMap.TryGetValue(node.Right.Identifier.Text, out var newName))
             {
+                LogDebug($"Renaming qualified name '{node}' to '{left}.{newName}'.");
                 right = SyntaxFactory.IdentifierName(newName);
             }
 
@@ -119,6 +141,8 @@ namespace Loaders.Obfuscation.Rewriters
             var updatedArgumentList = (ArgumentListSyntax?)Visit(node.ArgumentList);
             var updatedInitializer = (InitializerExpressionSyntax?)Visit(node.Initializer);
 
+            LogDebug($"Visiting object creation for type '{node.Type}' => '{updatedType}'. Arguments visited: {updatedArgumentList != null}.");
+
             if (updatedType is GenericNameSyntax genericType)
             {
                 var updatedArguments = genericType.TypeArgumentList.Arguments
@@ -127,6 +151,8 @@ namespace Loaders.Obfuscation.Rewriters
                     SyntaxFactory.SeparatedList(updatedArguments));
 
                 updatedType = genericType.WithTypeArgumentList(updatedTypeArgumentList);
+
+                LogDebug($"Updated generic object creation type arguments: {updatedTypeArgumentList.ToFullString()} for '{genericType}'.");
             }
 
             return node
@@ -203,6 +229,27 @@ namespace Loaders.Obfuscation.Rewriters
                    parent is PropertyDeclarationSyntax ||
                    parent is FieldDeclarationSyntax ||
                    parent is VariableDeclaratorSyntax;
+        }
+
+        private bool ContainsMappedIdentifier(TypeSyntax typeSyntax)
+        {
+            if (typeSyntax is IdentifierNameSyntax identifier)
+            {
+                return _classNameMap.ContainsKey(identifier.Identifier.Text);
+            }
+
+            if (typeSyntax is GenericNameSyntax genericName)
+            {
+                return _classNameMap.ContainsKey(genericName.Identifier.Text) ||
+                       genericName.TypeArgumentList.Arguments.Any(ContainsMappedIdentifier);
+            }
+
+            if (typeSyntax is QualifiedNameSyntax qualifiedName)
+            {
+                return ContainsMappedIdentifier(qualifiedName.Left) || ContainsMappedIdentifier(qualifiedName.Right);
+            }
+
+            return false;
         }
     }
 }
