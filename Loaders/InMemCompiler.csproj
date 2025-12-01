@@ -5,6 +5,7 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{12642C91-B91D-4057-8CF9-C720A4DD827D}</ProjectGuid>
+	<LangVersion>latest</LangVersion>
     <OutputType>Exe</OutputType>
     <RootNamespace>Loaders</RootNamespace>
     <AssemblyName>Loaders</AssemblyName>
