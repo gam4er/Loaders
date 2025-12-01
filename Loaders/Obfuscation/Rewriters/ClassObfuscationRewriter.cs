@@ -81,7 +81,7 @@ namespace Loaders.Obfuscation.Rewriters
         {
             var identifier = node.Identifier.Text;
 
-            if (IsInReservedContext(node))
+            if (!IsTypeContext(node) && IsInReservedContext(node))
             {
                 if (_classNameMap.ContainsKey(identifier))
                 {
@@ -222,6 +222,12 @@ namespace Loaders.Obfuscation.Rewriters
                 case IdentifierNameSyntax identifier when _classNameMap.TryGetValue(identifier.Identifier.Text, out var newName):
                     return SyntaxFactory.IdentifierName(newName).WithTriviaFrom(identifier);
 
+                case AliasQualifiedNameSyntax aliasQualifiedName:
+                    var visitedAliasLeft = MapType(aliasQualifiedName.Alias);
+                    var visitedAliasRight = MapType(aliasQualifiedName.Name) as SimpleNameSyntax ?? aliasQualifiedName.Name;
+                    return SyntaxFactory.AliasQualifiedName((IdentifierNameSyntax)visitedAliasLeft, visitedAliasRight)
+                        .WithTriviaFrom(aliasQualifiedName);
+
                 case GenericNameSyntax generic:
                     var updatedArguments = generic.TypeArgumentList.Arguments
                         .Select(MapType);
@@ -240,6 +246,28 @@ namespace Loaders.Obfuscation.Rewriters
                     var updatedLeft = MapType(qualified.Left);
                     var updatedRight = MapType(qualified.Right) as SimpleNameSyntax ?? qualified.Right;
                     return SyntaxFactory.QualifiedName((NameSyntax)updatedLeft, updatedRight).WithTriviaFrom(qualified);
+
+                case NullableTypeSyntax nullableType:
+                    var visitedUnderlying = MapType(nullableType.ElementType);
+                    return SyntaxFactory.NullableType(visitedUnderlying).WithTriviaFrom(nullableType);
+
+                case ArrayTypeSyntax arrayType:
+                    var visitedArrayElement = MapType(arrayType.ElementType);
+                    var visitedRanks = arrayType.RankSpecifiers.Select(rank => (ArrayRankSpecifierSyntax)Visit(rank));
+                    return SyntaxFactory.ArrayType(visitedArrayElement, SyntaxFactory.List(visitedRanks)).WithTriviaFrom(arrayType);
+
+                case PointerTypeSyntax pointerType:
+                    var visitedPointerElement = MapType(pointerType.ElementType);
+                    return SyntaxFactory.PointerType(visitedPointerElement).WithTriviaFrom(pointerType);
+
+                case TupleTypeSyntax tupleType:
+                    var visitedElements = tupleType.Elements.Select(element =>
+                    {
+                        var visitedElementType = MapType(element.Type);
+                        return element.WithType(visitedElementType);
+                    });
+
+                    return tupleType.WithElements(SyntaxFactory.SeparatedList(visitedElements)).WithTriviaFrom(tupleType);
 
                 default:
                     return (TypeSyntax)Visit(typeSyntax);
@@ -268,6 +296,19 @@ namespace Loaders.Obfuscation.Rewriters
                    parent is PropertyDeclarationSyntax ||
                    parent is FieldDeclarationSyntax ||
                    parent is VariableDeclaratorSyntax;
+        }
+
+        private static bool IsTypeContext(SyntaxNode node)
+        {
+            for (var current = node; current != null; current = current.Parent)
+            {
+                if (current is TypeSyntax)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool ContainsMappedIdentifier(TypeSyntax typeSyntax)
