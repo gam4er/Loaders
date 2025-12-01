@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 using System.Xml.Linq;
 using Loaders.Obfuscation.Rewriters;
 using Loaders.Obfuscation.Services;
@@ -15,6 +14,7 @@ using Microsoft.CodeAnalysis.Formatting;
 internal static class InMemCompiler
 {
     private const string SourceFolder = "d:\\Documents\\GitHub\\Seatbelt\\Seatbelt\\";
+    private const string OutputFolder = "d:\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
     private const string ProjectFileName = "Seatbelt.csproj";
 
     private static readonly IReadOnlyCollection<string> ExcludedClasses = new HashSet<string>
@@ -44,28 +44,52 @@ internal static class InMemCompiler
         "FileUtil",
     };
 
-    private static async Task Main()
+    private static void Main()
     {
-        var projectPaths = LoadProject(SourceFolder, ProjectFileName);
-        await ObfuscateStringLiteralsAsync(projectPaths.CsFiles).ConfigureAwait(false);
-        await AddMethodOverloadsAsync(projectPaths.CsFiles).ConfigureAwait(false);
+        var projectPaths = LoadProject(SourceFolder, OutputFolder, ProjectFileName);
+        ObfuscateStringLiterals(projectPaths.CsFiles);
+        AddMethodOverloads(projectPaths.CsFiles);
 
         var classMap = CollectClassNameMap(projectPaths.CsFiles);
-        await ApplyClassObfuscationAsync(projectPaths.CsFiles, classMap).ConfigureAwait(false);
-        await ClassRenamer.RenameClassesAsync(classMap, projectPaths.CsFiles).ConfigureAwait(false);
+        ApplyClassObfuscation(projectPaths.CsFiles, classMap);
+        ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
 
-        await CompileAsync(projectPaths.CsFiles, projectPaths.References).ConfigureAwait(false);
+        Compile(projectPaths.CsFiles, projectPaths.References);
     }
 
-    private static (IReadOnlyList<string> CsFiles, IReadOnlyList<string> References) LoadProject(string sourceFolder, string csprojName)
+    private static (IReadOnlyList<string> CsFiles, IReadOnlyList<string> References) LoadProject(string sourceFolder, string outputFolder, string csprojName)
     {
         XDocument csproj = XDocument.Load(Path.Combine(sourceFolder, csprojName));
         XNamespace ns = csproj.Root?.Name.Namespace ?? throw new InvalidOperationException("Invalid csproj content");
 
+        var projectDirectory = Path.GetDirectoryName(Path.Combine(sourceFolder, csprojName)) ?? string.Empty;
+        var outputDirectory = Path.GetDirectoryName(Path.Combine(outputFolder, csprojName)) ?? string.Empty;
+
+        if (!string.IsNullOrEmpty(outputDirectory))
+        {
+            Directory.CreateDirectory(outputDirectory);
+        }
+
+        var outputCsprojPath = Path.Combine(outputDirectory, csprojName);
+        File.Copy(Path.Combine(sourceFolder, csprojName), outputCsprojPath, true);
+
         var csFiles = csproj
             .Descendants(ns + "Compile")
             .Attributes("Include")
-            .Select(a => Path.Combine(Path.GetDirectoryName(Path.Combine(sourceFolder, csprojName)) ?? string.Empty, a.Value))
+            .Select(a =>
+            {
+                var sourcePath = Path.Combine(projectDirectory, a.Value);
+                var destinationPath = Path.Combine(outputDirectory, a.Value);
+
+                var destinationFolder = Path.GetDirectoryName(destinationPath);
+                if (!string.IsNullOrEmpty(destinationFolder))
+                {
+                    Directory.CreateDirectory(destinationFolder);
+                }
+
+                File.Copy(sourcePath, destinationPath, true);
+                return destinationPath;
+            })
             .ToList();
 
         var references = csproj
@@ -82,35 +106,35 @@ internal static class InMemCompiler
         return (csFiles, references);
     }
 
-    private static async Task ObfuscateStringLiteralsAsync(IEnumerable<string> csFiles)
+    private static void ObfuscateStringLiterals(IEnumerable<string> csFiles)
     {
         foreach (var csFile in csFiles)
         {
-            if (csFile.Contains("AssemblyInfo.cs", StringComparison.OrdinalIgnoreCase))
+            if (csFile.IndexOf("AssemblyInfo.cs", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 continue;
             }
 
-            var sourceCode = await File.ReadAllTextAsync(csFile).ConfigureAwait(false);
+            var sourceCode = File.ReadAllText(csFile);
             var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
 
             syntaxTree = StringLiteralObfuscationService.RemoveCommentsAndEnsureUsings(syntaxTree);
             syntaxTree = StringLiteralObfuscationService.ObfuscateStrings(syntaxTree);
 
-            await File.WriteAllTextAsync(csFile, syntaxTree.GetRoot().ToFullString()).ConfigureAwait(false);
+            File.WriteAllText(csFile, syntaxTree.GetRoot().ToFullString());
         }
     }
 
-    private static async Task AddMethodOverloadsAsync(IEnumerable<string> csFiles)
+    private static void AddMethodOverloads(IEnumerable<string> csFiles)
     {
         foreach (var csFile in csFiles)
         {
-            var sourceCode = await File.ReadAllTextAsync(csFile).ConfigureAwait(false);
+            var sourceCode = File.ReadAllText(csFile);
             var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
             var rewriter = new MethodOverloadRewriter();
             var newRoot = rewriter.Visit(syntaxTree.GetRoot());
             var formattedRoot = Formatter.Format(newRoot, new AdhocWorkspace());
-            await File.WriteAllTextAsync(csFile, formattedRoot.ToFullString()).ConfigureAwait(false);
+            File.WriteAllText(csFile, formattedRoot.ToFullString());
         }
     }
 
@@ -131,26 +155,26 @@ internal static class InMemCompiler
             .ToDictionary(pair => pair.Key, pair => pair.Value);
     }
 
-    private static async Task ApplyClassObfuscationAsync(IEnumerable<string> csFiles, IReadOnlyDictionary<string, string> classMap)
+    private static void ApplyClassObfuscation(IEnumerable<string> csFiles, IReadOnlyDictionary<string, string> classMap)
     {
         var rewriter = new ClassObfuscationRewriter(classMap);
 
         foreach (var csFile in csFiles)
         {
-            var sourceCode = await File.ReadAllTextAsync(csFile).ConfigureAwait(false);
+            var sourceCode = File.ReadAllText(csFile);
             var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
             var newRoot = rewriter.Visit(syntaxTree.GetRoot());
-            await File.WriteAllTextAsync(csFile, newRoot.ToFullString()).ConfigureAwait(false);
+            File.WriteAllText(csFile, newRoot.ToFullString());
         }
     }
 
-    private static async Task CompileAsync(IEnumerable<string> csFiles, IReadOnlyList<string> references)
+    private static void Compile(IEnumerable<string> csFiles, IReadOnlyList<string> references)
     {
         var metadataReferences = new List<MetadataReference>();
 
         foreach (var reference in references)
         {
-            var assemblies = GAC.FindAssemblyForNamespace(reference);
+            var assemblies = Loaders.GAC.FindAssemblyForNamespace(reference);
             if (assemblies != null)
             {
                 metadataReferences.AddRange(assemblies.Select(assembly => MetadataReference.CreateFromFile(assembly.Location)));
@@ -161,8 +185,11 @@ internal static class InMemCompiler
             }
         }
 
-        var eventingAssemblies = GAC.FindAssemblyForNamespace("System.Diagnostics.Eventing.Reader");
-        metadataReferences.AddRange(eventingAssemblies.Select(assembly => MetadataReference.CreateFromFile(assembly.Location)));
+        var eventingAssemblies = Loaders.GAC.FindAssemblyForNamespace("System.Diagnostics.Eventing.Reader");
+        if (eventingAssemblies != null)
+        {
+            metadataReferences.AddRange(eventingAssemblies.Select(assembly => MetadataReference.CreateFromFile(assembly.Location)));
+        }
 
         var options = new CSharpCompilationOptions(
             OutputKind.ConsoleApplication,
@@ -174,7 +201,9 @@ internal static class InMemCompiler
         compilation = compilation.AddSyntaxTrees(syntaxTrees.Values);
         compilation = compilation.AddReferences(metadataReferences);
 
-        string outputPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty, "Output.exe");
+        var outputPath = Path.Combine(OutputFolder, "Output.exe");
+
+        Directory.CreateDirectory(OutputFolder);
 
         using var ms = new MemoryStream();
         EmitResult result = compilation.Emit(ms);
