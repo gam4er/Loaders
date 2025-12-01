@@ -48,13 +48,13 @@ namespace Loaders.Obfuscation.Services
 
                     var classDeclarations = root.DescendantNodesAndSelf()
                         .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax>()
-                        .Where(c => c.Identifier.Text == originalName)
+                        .Where(c => c.Identifier.Text == originalName || c.Identifier.Text == obfuscatedName)
                         .ToList();
 
                     foreach (var classDeclaration in classDeclarations)
                     {
                         var symbol = semanticModel.GetDeclaredSymbol(classDeclaration);
-                        if (symbol != null)
+                        if (symbol != null && symbol.Name != obfuscatedName)
                         {
                             solution = Renamer.RenameSymbolAsync(solution, symbol, obfuscatedName, workspace.Options)
                                 .GetAwaiter()
@@ -98,7 +98,11 @@ namespace Loaders.Obfuscation.Services
             {
                 var code = File.ReadAllText(filePath);
                 project = workspace
-                    .AddDocument(project.Id, Path.GetFileName(filePath), SourceText.From(code)/*, filePath: filePath*/)
+                    .AddDocument(
+                        project.Id,
+                        Path.GetFileName(filePath),
+                        SourceText.From(code),
+                        filePath: filePath)
                     .Project;
             }
 
