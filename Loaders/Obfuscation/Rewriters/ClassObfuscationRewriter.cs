@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -20,11 +21,17 @@ namespace Loaders.Obfuscation.Rewriters
 
         private readonly IReadOnlyDictionary<string, string> _classNameMap;
 
+        private static readonly object LogLock = new();
+        private static readonly string LogFilePath = Path.Combine(AppContext.BaseDirectory, "obf.log");
+
         private static void LogDebug(string message)
         {
-#if DEBUG
-            Console.WriteLine($"[ClassObfuscationRewriter] {message}");
-#endif
+            var formatted = $"[ClassObfuscationRewriter] {DateTime.UtcNow:O} {message}{Environment.NewLine}";
+
+            lock (LogLock)
+            {
+                File.AppendAllText(LogFilePath, formatted);
+            }
         }
 
         public ClassObfuscationRewriter(IReadOnlyDictionary<string, string> classNameMap)
@@ -137,7 +144,7 @@ namespace Loaders.Obfuscation.Rewriters
 
         public override SyntaxNode VisitObjectCreationExpression(ObjectCreationExpressionSyntax node)
         {
-            var updatedType = (TypeSyntax)Visit(node.Type);
+            var updatedType = MapType(node.Type);
             var updatedArgumentList = (ArgumentListSyntax?)Visit(node.ArgumentList);
             var updatedInitializer = (InitializerExpressionSyntax?)Visit(node.Initializer);
 
@@ -146,7 +153,7 @@ namespace Loaders.Obfuscation.Rewriters
             if (updatedType is GenericNameSyntax genericType)
             {
                 var updatedArguments = genericType.TypeArgumentList.Arguments
-                    .Select(argument => (TypeSyntax)Visit(argument));
+                    .Select(argument => MapType(argument));
                 var updatedTypeArgumentList = SyntaxFactory.TypeArgumentList(
                     SyntaxFactory.SeparatedList(updatedArguments));
 
@@ -174,13 +181,13 @@ namespace Loaders.Obfuscation.Rewriters
 
         public override SyntaxNode VisitParameter(ParameterSyntax node)
         {
-            var visitedType = (TypeSyntax)Visit(node.Type);
+            var visitedType = MapType(node.Type);
             return node.WithType(visitedType).WithTriviaFrom(node);
         }
 
         public override SyntaxNode VisitVariableDeclaration(VariableDeclarationSyntax node)
         {
-            var visitedType = (TypeSyntax)Visit(node.Type);
+            var visitedType = MapType(node.Type);
             return node.WithType(visitedType).WithTriviaFrom(node);
         }
 
@@ -203,8 +210,40 @@ namespace Loaders.Obfuscation.Rewriters
 
         public override SyntaxNode VisitCastExpression(CastExpressionSyntax node)
         {
-            var visitedType = (TypeSyntax)Visit(node.Type);
-            return node.WithType(visitedType).WithTriviaFrom(node);
+            var visitedType = MapType(node.Type);
+            var visitedExpression = (ExpressionSyntax)Visit(node.Expression);
+            return node.WithType(visitedType).WithExpression(visitedExpression).WithTriviaFrom(node);
+        }
+
+        private TypeSyntax MapType(TypeSyntax typeSyntax)
+        {
+            switch (typeSyntax)
+            {
+                case IdentifierNameSyntax identifier when _classNameMap.TryGetValue(identifier.Identifier.Text, out var newName):
+                    return SyntaxFactory.IdentifierName(newName).WithTriviaFrom(identifier);
+
+                case GenericNameSyntax generic:
+                    var updatedArguments = generic.TypeArgumentList.Arguments
+                        .Select(MapType);
+                    var updatedTypeArgumentList = SyntaxFactory.TypeArgumentList(
+                        SyntaxFactory.SeparatedList(updatedArguments));
+
+                    var updatedGeneric = generic.WithTypeArgumentList(updatedTypeArgumentList);
+                    if (_classNameMap.TryGetValue(generic.Identifier.Text, out var newGenericName))
+                    {
+                        updatedGeneric = updatedGeneric.WithIdentifier(SyntaxFactory.Identifier(newGenericName));
+                    }
+
+                    return updatedGeneric.WithTriviaFrom(generic);
+
+                case QualifiedNameSyntax qualified:
+                    var updatedLeft = MapType(qualified.Left);
+                    var updatedRight = MapType(qualified.Right) as SimpleNameSyntax ?? qualified.Right;
+                    return SyntaxFactory.QualifiedName((NameSyntax)updatedLeft, updatedRight).WithTriviaFrom(qualified);
+
+                default:
+                    return (TypeSyntax)Visit(typeSyntax);
+            }
         }
 
         private bool IsReservedNamespace(SyntaxNode node)
