@@ -33,6 +33,8 @@ namespace Loaders.Obfuscation.Rewriters
                 updatedNode = updatedNode.WithIdentifier(SyntaxFactory.Identifier(newName));
             }
 
+            var updatedAttributes = node.AttributeLists
+                .Select(attributeList => (AttributeListSyntax)Visit(attributeList));
             var updatedTypeParameters = (TypeParameterListSyntax?)Visit(node.TypeParameterList);
             var updatedBaseList = (BaseListSyntax?)Visit(node.BaseList);
             var updatedConstraints = node.ConstraintClauses
@@ -40,6 +42,7 @@ namespace Loaders.Obfuscation.Rewriters
             var rewrittenMembers = updatedNode.Members.Select(member => (MemberDeclarationSyntax)Visit(member));
 
             return updatedNode
+                .WithAttributeLists(SyntaxFactory.List(updatedAttributes))
                 .WithTypeParameterList(updatedTypeParameters)
                 .WithBaseList(updatedBaseList)
                 .WithConstraintClauses(SyntaxFactory.List(updatedConstraints))
