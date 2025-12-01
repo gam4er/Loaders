@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Rename;
@@ -12,7 +11,7 @@ namespace Loaders.Obfuscation.Services
 {
     internal static class ClassRenamer
     {
-        public static async Task RenameClassesAsync(IReadOnlyDictionary<string, string> classMap, IReadOnlyCollection<string> filePaths)
+        public static void RenameClasses(IReadOnlyDictionary<string, string> classMap, IReadOnlyCollection<string> filePaths)
         {
             if (classMap == null)
             {
@@ -38,8 +37,8 @@ namespace Loaders.Obfuscation.Services
                         continue;
                     }
 
-                    var root = await document.GetSyntaxRootAsync().ConfigureAwait(false);
-                    var semanticModel = await document.GetSemanticModelAsync().ConfigureAwait(false);
+                    var root = document.GetSyntaxRootAsync().GetAwaiter().GetResult();
+                    var semanticModel = document.GetSemanticModelAsync().GetAwaiter().GetResult();
                     if (root == null || semanticModel == null)
                     {
                         continue;
@@ -55,8 +54,9 @@ namespace Loaders.Obfuscation.Services
                         var symbol = semanticModel.GetDeclaredSymbol(classDeclaration);
                         if (symbol != null)
                         {
-                            solution = await Renamer.RenameSymbolAsync(solution, symbol, obfuscatedName, workspace.Options)
-                                .ConfigureAwait(false);
+                            solution = Renamer.RenameSymbolAsync(solution, symbol, obfuscatedName, workspace.Options)
+                                .GetAwaiter()
+                                .GetResult();
                         }
                     }
                 }
@@ -72,10 +72,10 @@ namespace Loaders.Obfuscation.Services
                     continue;
                 }
 
-                var newText = await updatedDocument.GetTextAsync().ConfigureAwait(false);
+                var newText = updatedDocument.GetTextAsync().GetAwaiter().GetResult();
                 if (updatedDocument.FilePath != null)
                 {
-                    await File.WriteAllTextAsync(updatedDocument.FilePath, newText.ToString()).ConfigureAwait(false);
+                    File.WriteAllText(updatedDocument.FilePath, newText.ToString());
                 }
             }
         }
