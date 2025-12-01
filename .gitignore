@@ -91,6 +91,9 @@ StyleCopReport.xml
 *.tmp_proj
 *_wpftmp.csproj
 *.log
+# Allow obfuscation tooling logs to be committed
+!/obf.log
+!/compilation-errors.log
 *.vspscc
 *.vssscc
 .builds
