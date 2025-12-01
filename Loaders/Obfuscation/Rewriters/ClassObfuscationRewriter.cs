@@ -33,8 +33,18 @@ namespace Loaders.Obfuscation.Rewriters
                 updatedNode = updatedNode.WithIdentifier(SyntaxFactory.Identifier(newName));
             }
 
+            var updatedTypeParameters = (TypeParameterListSyntax?)Visit(node.TypeParameterList);
+            var updatedBaseList = (BaseListSyntax?)Visit(node.BaseList);
+            var updatedConstraints = node.ConstraintClauses
+                .Select(constraint => (TypeParameterConstraintClauseSyntax)Visit(constraint));
             var rewrittenMembers = updatedNode.Members.Select(member => (MemberDeclarationSyntax)Visit(member));
-            return updatedNode.WithMembers(SyntaxFactory.List(rewrittenMembers)).NormalizeWhitespace();
+
+            return updatedNode
+                .WithTypeParameterList(updatedTypeParameters)
+                .WithBaseList(updatedBaseList)
+                .WithConstraintClauses(SyntaxFactory.List(updatedConstraints))
+                .WithMembers(SyntaxFactory.List(rewrittenMembers))
+                .NormalizeWhitespace();
         }
 
         public override SyntaxNode VisitUsingDirective(UsingDirectiveSyntax node)
@@ -87,6 +97,18 @@ namespace Loaders.Obfuscation.Rewriters
         public override SyntaxNode VisitObjectCreationExpression(ObjectCreationExpressionSyntax node)
         {
             var updatedType = (TypeSyntax)Visit(node.Type);
+
+            if (updatedType is GenericNameSyntax genericType &&
+                string.Equals(genericType.Identifier.Text, nameof(List), StringComparison.Ordinal))
+            {
+                var updatedArguments = genericType.TypeArgumentList.Arguments
+                    .Select(argument => (TypeSyntax)Visit(argument));
+                var updatedTypeArgumentList = SyntaxFactory.TypeArgumentList(
+                    SyntaxFactory.SeparatedList(updatedArguments));
+
+                updatedType = genericType.WithTypeArgumentList(updatedTypeArgumentList);
+            }
+
             return node.WithType(updatedType).WithTriviaFrom(node);
         }
 
