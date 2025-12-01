@@ -99,7 +99,7 @@ namespace Loaders.Obfuscation.Rewriters
             var updatedType = (TypeSyntax)Visit(node.Type);
 
             if (updatedType is GenericNameSyntax genericType &&
-                string.Equals(genericType.Identifier.Text, nameof(List), StringComparison.Ordinal))
+                string.Equals(genericType.Identifier.Text, /*nameof(List)*/ "List", StringComparison.Ordinal))
             {
                 var updatedArguments = genericType.TypeArgumentList.Arguments
                     .Select(argument => (TypeSyntax)Visit(argument));
