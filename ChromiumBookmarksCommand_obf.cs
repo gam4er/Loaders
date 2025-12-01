@@ -23,8 +23,8 @@ internal class O_1BAC4007
     public string Url { get; }
 }internal class O_0D879548 : O_2183A68D
 {
-    public override string Command => Encoding.UTF8.GetString(Convert.FromBase64String("EVFOOuXviFMQVlM+5eePVSE=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("Ujk8VYiG/T4=")[index % 8])).ToArray());
-    public override string Description => Encoding.UTF8.GetString(Convert.FromBase64String("P2mTiED9eIYBccGdSvs2g09LiYlK4z3IKmyGngrMKoYZbc60Vesqhk9qjpRO4zmVBCiHkknrKw==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("bwjh+yWOWOc=")[index % 8])).ToArray());
+    public override string Command => Encoding.UTF8.GetString(Convert.FromBase64String("rypbizRas0quLUaPNFK0TJ8=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("7EIp5Fkzxic=")[index % 8])).ToArray());
+    public override string Description => Encoding.UTF8.GetString(Convert.FromBase64String("pmUhs02HLC+YfXOmR4FiKtZHO7JHmWlhs2A0pQe2fi+AYXyPWJF+L9ZmPK9DmW08nSQ1qUSRfw==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("9gRTwCj0DE4=")[index % 8])).ToArray());
     public override CommandGroup[] Group => new[]
     {
         CommandGroup.Misc,
@@ -40,22 +40,22 @@ internal class O_1BAC4007
 
     public override IEnumerable<O_4AED570F?> Execute(string[] args)
     {
-        var dirs = ThisRunTime.GetDirectories(Encoding.UTF8.GetString(Convert.FromBase64String("TjBfdovBnQ==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("EmUsE/mywS0=")[index % 8])).ToArray()));
+        var dirs = ThisRunTime.GetDirectories(Encoding.UTF8.GetString(Convert.FromBase64String("w2jWdCfXqA==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("nz2lEVWk9Hc=")[index % 8])).ToArray()));
         foreach (var dir in dirs)
         {
             var parts = dir.Split('\\');
             var userName = parts[parts.Length - 1];
-            if (dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("KclsJdKZ").Select((value, index) => (byte)(value ^ Convert.FromBase64String("ebwOSbv6RB4=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("kJn4CRrSLw==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("1PyeaG++W5E=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("Lz5ZztZS4ZE+KFrd").Select((value, index) => (byte)(value ^ Convert.FromBase64String("a1s/r6M+lbE=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("6af2pMnJyBDb").Select((value, index) => (byte)(value ^ Convert.FromBase64String("qMuahJy6rWI=")[index % 8])).ToArray())))
+            if (dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("OOSO2HGM").Select((value, index) => (byte)(value ^ Convert.FromBase64String("aJHstBjvHwA=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("0bloD25oxg==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("ldwObhsEsqc=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("W+VAxgf0NLlK80PV").Select((value, index) => (byte)(value ^ Convert.FromBase64String("H4Amp3KYQJk=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("D/TI38EYGHU9").Select((value, index) => (byte)(value ^ Convert.FromBase64String("Tpik/5RrfQc=")[index % 8])).ToArray())))
             {
                 continue;
             }
 
             string[] paths =
             {
-                Encoding.UTF8.GetString(Convert.FromBase64String("skW22vbvbp+ySKnJ0+JGuYFrocbX0lmWnGurz+7baZucJILLxu9Guotip9/e+kY=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("7gTGqrKOGv4=")[index % 8])).ToArray()),
-                Encoding.UTF8.GetString(Convert.FromBase64String("Ze3h5JbXdXpl4P73s9pdVlDP4/uh2WdvZen187fqVGhc3rHQs8JgR33J9/Wn2nVH").Select((value, index) => (byte)(value ^ Convert.FromBase64String("OayRlNK2ARs=")[index % 8])).ToArray()),
-                Encoding.UTF8.GetString(Convert.FromBase64String("U7UclRWFdjJTuAOGMIheEX2VGoACi2QneJUegA2mcDJ5kUGnI4t1IGqGMLAigXBzS5UYhA2gZzVugQCRDQ==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("D/Rs5VHkAlM=")[index % 8])).ToArray()),
-                Encoding.UTF8.GetString(Convert.FromBase64String("xvo7PrqLlFTG6SQvk4OOUsb0OyuMi8Bm9d0/OZ+YhWnVyy48n8qzQfvZJyui").Select((value, index) => (byte)(value ^ Convert.FromBase64String("mrtLTv7q4DU=")[index % 8])).ToArray())
+                Encoding.UTF8.GetString(Convert.FromBase64String("zeB97Au4UjrN7WL/LrV6HP7OavAqhWUz485g+ROMVT7jgUn9O7h6H/THbOkjrXo=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("kaENnE/ZJls=")[index % 8])).ToArray()),
+                Encoding.UTF8.GetString(Convert.FromBase64String("YldwwZgIfRViWm/SvQVVOVd1ct6vBm8AYlNk1rk1XAdbZCD1vR1oKHpzZtCpBX0o").Select((value, index) => (byte)(value ^ Convert.FromBase64String("PhYAsdxpCXQ=")[index % 8])).ToArray()),
+                Encoding.UTF8.GetString(Convert.FromBase64String("rprSD4gm616ul80crSvDfYC61BqfKPlLhbrQGpAF7V6Evo89vijoTJep/iq/Iu0ftrrWHpAD+lmTrs4LkA==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("8tuif8xHnz8=")[index % 8])).ToArray()),
+                Encoding.UTF8.GetString(Convert.FromBase64String("WJFBkZh0SuNYgl6AsXxQ5VifQYSudB7Ra7ZFlr1nW95LoFSTvTVt9mWyXYSA").Select((value, index) => (byte)(value ^ Convert.FromBase64String("BNAx4dwVPoI=")[index % 8])).ToArray())
             };
             foreach (string path in paths)
             {
@@ -68,12 +68,12 @@ internal class O_1BAC4007
                     var contents = File.ReadAllText(userChromeBookmarkPath);
                     var json = new JavaScriptSerializer();
                     var deserialized = json.Deserialize<Dictionary<string, object>>(contents);
-                    var roots = (Dictionary<string, object>)deserialized[Encoding.UTF8.GetString(Convert.FromBase64String("XDjQ+yQ=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("Lle/j1fZE/A=")[index % 8])).ToArray())];
-                    var bookmarkBar = (Dictionary<string, object>)roots[Encoding.UTF8.GetString(Convert.FromBase64String("E9OENwIKymAu3oou").Select((value, index) => (byte)(value ^ Convert.FromBase64String("cbzrXG9ruAs=")[index % 8])).ToArray())];
-                    var children = (ArrayList)bookmarkBar[Encoding.UTF8.GetString(Convert.FromBase64String("C2GOM/Tker4=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("aAnnX5CWH9A=")[index % 8])).ToArray())];
+                    var roots = (Dictionary<string, object>)deserialized[Encoding.UTF8.GetString(Convert.FromBase64String("NBrxw24=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("RnWetx0vttQ=")[index % 8])).ToArray())];
+                    var bookmarkBar = (Dictionary<string, object>)roots[Encoding.UTF8.GetString(Convert.FromBase64String("OQvkN8GeuPkEBuou").Select((value, index) => (byte)(value ^ Convert.FromBase64String("W2SLXKz/ypI=")[index % 8])).ToArray())];
+                    var children = (ArrayList)bookmarkBar[Encoding.UTF8.GetString(Convert.FromBase64String("hXjIz8i/Nx0=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("5hCho6zNUnM=")[index % 8])).ToArray())];
                     foreach (Dictionary<string, object> entry in children)
                     {
-                        var bookmark = new Bookmark($"{entry[Encoding.UTF8.GetString(Convert.FromBase64String("w2qzWA==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("rQvePei59WA=")[index % 8])).ToArray())].ToString().Trim()}", entry.ContainsKey(Encoding.UTF8.GetString(Convert.FromBase64String("AXQ9").Select((value, index) => (byte)(value ^ Convert.FromBase64String("dAZRzZ5SgGo=")[index % 8])).ToArray())) ? $"{entry[Encoding.UTF8.GetString(Convert.FromBase64String("rzuV").Select((value, index) => (byte)(value ^ Convert.FromBase64String("2kn5n+Jyjyo=")[index % 8])).ToArray())]}" : Encoding.UTF8.GetString(Convert.FromBase64String("8l0d1UcskxmxPzTVQCWXGeU2").Select((value, index) => (byte)(value ^ Convert.FromBase64String("2h9yuixB8ms=")[index % 8])).ToArray()));
+                        var bookmark = new Bookmark($"{entry[Encoding.UTF8.GetString(Convert.FromBase64String("9quKpA==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("mMrnwXcotYc=")[index % 8])).ToArray())].ToString().Trim()}", entry.ContainsKey(Encoding.UTF8.GetString(Convert.FromBase64String("UYfP").Select((value, index) => (byte)(value ^ Convert.FromBase64String("JPWjJcIoass=")[index % 8])).ToArray())) ? $"{entry[Encoding.UTF8.GetString(Convert.FromBase64String("4JPT").Select((value, index) => (byte)(value ^ Convert.FromBase64String("leG/ssDa+JE=")[index % 8])).ToArray())]}" : Encoding.UTF8.GetString(Convert.FromBase64String("2VDRS6op44maMvhLrSDnic47").Select((value, index) => (byte)(value ^ Convert.FromBase64String("8RK+JMFEgvs=")[index % 8])).ToArray()));
                         bookmarks.Add(bookmark);
                     }
                 }
@@ -124,7 +124,7 @@ internal class O_1BAC4007
             }
         }
 
-        public void FormatResult(O_2183A68D? command, O_4AED570F result, bool filterResults, string LZruMahB)
+        public void FormatResult(O_2183A68D? command, O_4AED570F result, bool filterResults, string UeDOfFyu)
         {
             try
             {
@@ -132,8 +132,8 @@ internal class O_1BAC4007
                 {
                     try
                     {
-                        System.IO.StringWriter instance = new System.IO.StringWriter();
-                        instance.Write('p');
+                        System.Globalization.TaiwanLunisolarCalendar instance = new System.Globalization.TaiwanLunisolarCalendar();
+                        instance.GetEra(new System.DateTime());
                     }
                     catch (Exception)
                     {
@@ -159,7 +159,7 @@ internal class O_1BAC4007
         }
     }
 
-    public IEnumerable<O_4AED570F?> Execute(string[] args, string gorQHjsz)
+    public IEnumerable<O_4AED570F?> Execute(string[] args, string rVLsrAAr)
     {
         try
         {
@@ -167,8 +167,8 @@ internal class O_1BAC4007
             {
                 try
                 {
-                    System.IO.StringWriter instance = new System.IO.StringWriter();
-                    instance.Write('p');
+                    System.Globalization.TaiwanLunisolarCalendar instance = new System.Globalization.TaiwanLunisolarCalendar();
+                    instance.GetEra(new System.DateTime());
                 }
                 catch (Exception)
                 {
@@ -179,22 +179,22 @@ internal class O_1BAC4007
         {
         }
 
-        var dirs = ThisRunTime.GetDirectories(Encoding.UTF8.GetString(Convert.FromBase64String("TjBfdovBnQ==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("EmUsE/mywS0=")[index % 8])).ToArray()));
+        var dirs = ThisRunTime.GetDirectories(Encoding.UTF8.GetString(Convert.FromBase64String("w2jWdCfXqA==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("nz2lEVWk9Hc=")[index % 8])).ToArray()));
         foreach (var dir in dirs)
         {
             var parts = dir.Split('\\');
             var userName = parts[parts.Length - 1];
-            if (dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("KclsJdKZ").Select((value, index) => (byte)(value ^ Convert.FromBase64String("ebwOSbv6RB4=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("kJn4CRrSLw==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("1PyeaG++W5E=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("Lz5ZztZS4ZE+KFrd").Select((value, index) => (byte)(value ^ Convert.FromBase64String("a1s/r6M+lbE=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("6af2pMnJyBDb").Select((value, index) => (byte)(value ^ Convert.FromBase64String("qMuahJy6rWI=")[index % 8])).ToArray())))
+            if (dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("OOSO2HGM").Select((value, index) => (byte)(value ^ Convert.FromBase64String("aJHstBjvHwA=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("0bloD25oxg==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("ldwObhsEsqc=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("W+VAxgf0NLlK80PV").Select((value, index) => (byte)(value ^ Convert.FromBase64String("H4Amp3KYQJk=")[index % 8])).ToArray())) || dir.EndsWith(Encoding.UTF8.GetString(Convert.FromBase64String("D/TI38EYGHU9").Select((value, index) => (byte)(value ^ Convert.FromBase64String("Tpik/5RrfQc=")[index % 8])).ToArray())))
             {
                 continue;
             }
 
             string[] paths =
             {
-                Encoding.UTF8.GetString(Convert.FromBase64String("skW22vbvbp+ySKnJ0+JGuYFrocbX0lmWnGurz+7baZucJILLxu9Guotip9/e+kY=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("7gTGqrKOGv4=")[index % 8])).ToArray()),
-                Encoding.UTF8.GetString(Convert.FromBase64String("Ze3h5JbXdXpl4P73s9pdVlDP4/uh2WdvZen187fqVGhc3rHQs8JgR33J9/Wn2nVH").Select((value, index) => (byte)(value ^ Convert.FromBase64String("OayRlNK2ARs=")[index % 8])).ToArray()),
-                Encoding.UTF8.GetString(Convert.FromBase64String("U7UclRWFdjJTuAOGMIheEX2VGoACi2QneJUegA2mcDJ5kUGnI4t1IGqGMLAigXBzS5UYhA2gZzVugQCRDQ==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("D/Rs5VHkAlM=")[index % 8])).ToArray()),
-                Encoding.UTF8.GetString(Convert.FromBase64String("xvo7PrqLlFTG6SQvk4OOUsb0OyuMi8Bm9d0/OZ+YhWnVyy48n8qzQfvZJyui").Select((value, index) => (byte)(value ^ Convert.FromBase64String("mrtLTv7q4DU=")[index % 8])).ToArray())
+                Encoding.UTF8.GetString(Convert.FromBase64String("zeB97Au4UjrN7WL/LrV6HP7OavAqhWUz485g+ROMVT7jgUn9O7h6H/THbOkjrXo=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("kaENnE/ZJls=")[index % 8])).ToArray()),
+                Encoding.UTF8.GetString(Convert.FromBase64String("YldwwZgIfRViWm/SvQVVOVd1ct6vBm8AYlNk1rk1XAdbZCD1vR1oKHpzZtCpBX0o").Select((value, index) => (byte)(value ^ Convert.FromBase64String("PhYAsdxpCXQ=")[index % 8])).ToArray()),
+                Encoding.UTF8.GetString(Convert.FromBase64String("rprSD4gm616ul80crSvDfYC61BqfKPlLhbrQGpAF7V6Evo89vijoTJep/iq/Iu0ftrrWHpAD+lmTrs4LkA==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("8tuif8xHnz8=")[index % 8])).ToArray()),
+                Encoding.UTF8.GetString(Convert.FromBase64String("WJFBkZh0SuNYgl6AsXxQ5VifQYSudB7Ra7ZFlr1nW95LoFSTvTVt9mWyXYSA").Select((value, index) => (byte)(value ^ Convert.FromBase64String("BNAx4dwVPoI=")[index % 8])).ToArray())
             };
             foreach (string path in paths)
             {
@@ -207,12 +207,12 @@ internal class O_1BAC4007
                     var contents = File.ReadAllText(userChromeBookmarkPath);
                     var json = new JavaScriptSerializer();
                     var deserialized = json.Deserialize<Dictionary<string, object>>(contents);
-                    var roots = (Dictionary<string, object>)deserialized[Encoding.UTF8.GetString(Convert.FromBase64String("XDjQ+yQ=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("Lle/j1fZE/A=")[index % 8])).ToArray())];
-                    var bookmarkBar = (Dictionary<string, object>)roots[Encoding.UTF8.GetString(Convert.FromBase64String("E9OENwIKymAu3oou").Select((value, index) => (byte)(value ^ Convert.FromBase64String("cbzrXG9ruAs=")[index % 8])).ToArray())];
-                    var children = (ArrayList)bookmarkBar[Encoding.UTF8.GetString(Convert.FromBase64String("C2GOM/Tker4=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("aAnnX5CWH9A=")[index % 8])).ToArray())];
+                    var roots = (Dictionary<string, object>)deserialized[Encoding.UTF8.GetString(Convert.FromBase64String("NBrxw24=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("RnWetx0vttQ=")[index % 8])).ToArray())];
+                    var bookmarkBar = (Dictionary<string, object>)roots[Encoding.UTF8.GetString(Convert.FromBase64String("OQvkN8GeuPkEBuou").Select((value, index) => (byte)(value ^ Convert.FromBase64String("W2SLXKz/ypI=")[index % 8])).ToArray())];
+                    var children = (ArrayList)bookmarkBar[Encoding.UTF8.GetString(Convert.FromBase64String("hXjIz8i/Nx0=").Select((value, index) => (byte)(value ^ Convert.FromBase64String("5hCho6zNUnM=")[index % 8])).ToArray())];
                     foreach (Dictionary<string, object> entry in children)
                     {
-                        var bookmark = new Bookmark($"{entry[Encoding.UTF8.GetString(Convert.FromBase64String("w2qzWA==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("rQvePei59WA=")[index % 8])).ToArray())].ToString().Trim()}", entry.ContainsKey(Encoding.UTF8.GetString(Convert.FromBase64String("AXQ9").Select((value, index) => (byte)(value ^ Convert.FromBase64String("dAZRzZ5SgGo=")[index % 8])).ToArray())) ? $"{entry[Encoding.UTF8.GetString(Convert.FromBase64String("rzuV").Select((value, index) => (byte)(value ^ Convert.FromBase64String("2kn5n+Jyjyo=")[index % 8])).ToArray())]}" : Encoding.UTF8.GetString(Convert.FromBase64String("8l0d1UcskxmxPzTVQCWXGeU2").Select((value, index) => (byte)(value ^ Convert.FromBase64String("2h9yuixB8ms=")[index % 8])).ToArray()));
+                        var bookmark = new Bookmark($"{entry[Encoding.UTF8.GetString(Convert.FromBase64String("9quKpA==").Select((value, index) => (byte)(value ^ Convert.FromBase64String("mMrnwXcotYc=")[index % 8])).ToArray())].ToString().Trim()}", entry.ContainsKey(Encoding.UTF8.GetString(Convert.FromBase64String("UYfP").Select((value, index) => (byte)(value ^ Convert.FromBase64String("JPWjJcIoass=")[index % 8])).ToArray())) ? $"{entry[Encoding.UTF8.GetString(Convert.FromBase64String("4JPT").Select((value, index) => (byte)(value ^ Convert.FromBase64String("leG/ssDa+JE=")[index % 8])).ToArray())]}" : Encoding.UTF8.GetString(Convert.FromBase64String("2VDRS6op44maMvhLrSDnic47").Select((value, index) => (byte)(value ^ Convert.FromBase64String("8RK+JMFEgvs=")[index % 8])).ToArray()));
                         bookmarks.Add(bookmark);
                     }
                 }

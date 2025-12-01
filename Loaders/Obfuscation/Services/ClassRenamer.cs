@@ -101,8 +101,8 @@ namespace Loaders.Obfuscation.Services
                     .AddDocument(
                         project.Id,
                         Path.GetFileName(filePath),
-                        SourceText.From(code),
-                        filePath: filePath)
+                        SourceText.From(code))//,
+                        //filePath: filePath)
                     .Project;
             }
 

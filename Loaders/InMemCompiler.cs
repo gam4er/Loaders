@@ -13,8 +13,8 @@ using Microsoft.CodeAnalysis.Formatting;
 
 internal static class InMemCompiler
 {
-    private const string SourceFolder = "d:\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
-    private const string OutputFolder = "d:\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
+    private const string SourceFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
+    private const string OutputFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
     private const string ProjectFileName = "Seatbelt.csproj";
 
     private static readonly IReadOnlyCollection<string> ExcludedClasses = new HashSet<string>
