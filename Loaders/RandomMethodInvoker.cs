@@ -257,6 +257,26 @@ catch (Exception)
                 return false;
             }
 
+            // Reject whole overload families where any overload uses string/char
+            // parameters, because our simple literal generation can be ambiguous
+            // across those overloads.
+            var overloads = method.DeclaringType?.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                            .Where(m => m.Name == method.Name) ?? Enumerable.Empty<MethodInfo>();
+
+            foreach (var overload in overloads)
+            {
+                foreach (var p in overload.GetParameters())
+                {
+                    var ot = p.ParameterType;
+                    if (ot == typeof(string) || ot == typeof(char))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            // Now ensure all parameters on the chosen method are from the set
+            // we know how to generate consistent literals for.
             foreach (var p in parameters)
             {
                 var t = p.ParameterType;
