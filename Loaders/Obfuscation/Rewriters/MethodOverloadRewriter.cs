@@ -26,6 +26,7 @@ namespace Loaders.Obfuscation.Rewriters
                 .Where(method => !method.Modifiers.Any(SyntaxKind.AbstractKeyword))
                 .Where(method => !HasDllImportAttribute(method))
                 .Where(method => !method.ParameterList.Parameters.Any(parameter => parameter.Default != null))
+                .Where(method => !IsEntryPoint(method))
                 .ToList();
 
             var overloads = candidateMethods
@@ -43,6 +44,13 @@ namespace Loaders.Obfuscation.Rewriters
             return method.AttributeLists
                 .SelectMany(attrList => attrList.Attributes)
                 .Any(attr => attr.Name.ToString().Contains("DllImport"));
+        }
+
+        private static bool IsEntryPoint(MethodDeclarationSyntax method)
+        {
+            // Skip methods named "Main" so we do not alter the program entry point
+            // signature. Overloading the entry point can confuse the runtime.
+            return string.Equals(method.Identifier.Text, "Main", StringComparison.Ordinal);
         }
 
         private bool MethodWithSameSignatureExists(ClassDeclarationSyntax classDeclaration, MethodDeclarationSyntax method)

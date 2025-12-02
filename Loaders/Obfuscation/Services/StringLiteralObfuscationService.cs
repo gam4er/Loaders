@@ -28,6 +28,7 @@ namespace Loaders.Obfuscation.Services
             root = EnsureUsingDirective(root, "System.Text");
             root = EnsureUsingDirective(root, "System.Linq");
             root = EnsureUsingDirective(root, "System.Threading.Tasks");
+            root = EnsureUsingDirective(root, "System.Configuration");
 
             return syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
         }

@@ -32,7 +32,7 @@ internal static class InMemCompiler
         "CommandOutputTypeAttribute",
         "CommandOutputType",
         "Advapi32",
-        "WindowsFirewallProfileSettings",
+        //"WindowsFirewallProfileSettings",
         "Principal",
         "WindowsDefenderSettings",
         "AsrRule",
@@ -288,6 +288,10 @@ internal static class InMemCompiler
             OutputKind.ConsoleApplication,
             optimizationLevel: OptimizationLevel.Release,
             allowUnsafe: false);
+
+        // Ensure common framework assemblies used by injected noise code are referenced explicitly.
+        var systemConfigurationAssembly = typeof(System.Configuration.ConfigurationElementCollection).Assembly.Location;
+        metadataReferences.Add(MetadataReference.CreateFromFile(systemConfigurationAssembly));
 
         var compilation = CSharpCompilation.Create(Path.GetRandomFileName(), options: options);
         var syntaxTrees = csFiles.ToDictionary(file => file, file => CSharpSyntaxTree.ParseText(File.ReadAllText(file)));
