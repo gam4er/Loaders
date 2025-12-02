@@ -293,6 +293,6 @@ internal static class InMemCompiler
         }
 
         File.WriteAllBytes(outputPath, ms.ToArray());
-        Assembly.Load(ms.ToArray()).EntryPoint?.Invoke(null, new object[] { new[] { "arg1", "arg2", "etc" } });
+        Assembly.Load(ms.ToArray()).EntryPoint?.Invoke(null, new object[] { new[] { "-group=all" } });
     }
 }
