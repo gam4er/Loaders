@@ -3,6 +3,10 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace Loaders.Obfuscation.Rewriters
 {
+    /// <summary>
+    /// Syntax rewriter that strips all source comments and region markers
+    /// to reduce signal for static analysis tools.
+    /// </summary>
     public class CommentRemover : CSharpSyntaxRewriter
     {
         public override SyntaxTrivia VisitTrivia(SyntaxTrivia trivia)

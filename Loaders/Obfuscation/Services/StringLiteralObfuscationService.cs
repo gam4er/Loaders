@@ -6,8 +6,18 @@ using Loaders.Obfuscation.Rewriters;
 
 namespace Loaders.Obfuscation.Services
 {
+    /// <summary>
+    /// High-level entry points for string literal obfuscation.
+    ///
+    /// This service removes comments, ensures required using directives are
+    /// present and then rewrites string literals to obfuscated expressions.
+    /// </summary>
     internal static class StringLiteralObfuscationService
     {
+        /// <summary>
+        /// Strips comments from the syntax tree and guarantees that core
+        /// namespaces used by the string decoder logic are imported.
+        /// </summary>
         public static SyntaxTree RemoveCommentsAndEnsureUsings(SyntaxTree syntaxTree)
         {
             var root = (CompilationUnitSyntax)syntaxTree.GetRoot();
@@ -22,6 +32,10 @@ namespace Loaders.Obfuscation.Services
             return syntaxTree.WithRootAndOptions(root, syntaxTree.Options);
         }
 
+        /// <summary>
+        /// Obfuscates string literals in the syntax tree, replacing them
+        /// with calls to obfuscation methods.
+        /// </summary>
         public static SyntaxTree ObfuscateStrings(SyntaxTree syntaxTree)
         {
             var rewriter = new StringLiteralObfuscator();

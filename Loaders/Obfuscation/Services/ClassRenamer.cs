@@ -9,6 +9,14 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace Loaders.Obfuscation.Services
 {
+    /// <summary>
+    /// Performs semantic class renaming using Roslyn symbol APIs.
+    ///
+    /// For each entry in the class map the corresponding type symbol is
+    /// renamed so that all references (base types, fields, parameters,
+    /// object constructions, etc.) are updated consistently across the
+    /// working copy of the Seatbelt project.
+    /// </summary>
     internal static class ClassRenamer
     {
         public static void RenameClasses(IReadOnlyDictionary<string, string> classMap, IReadOnlyCollection<string> filePaths)

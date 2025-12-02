@@ -4,6 +4,13 @@ using System.Text;
 
 namespace Loaders.Obfuscation.Utilities
 {
+    /// <summary>
+    /// Generates deterministic obfuscated identifiers for class names.
+    ///
+    /// The current implementation uses a truncated SHA-256 hash with a
+    /// fixed prefix ("O_") so that the same original name always maps to
+    /// the same obfuscated identifier within a run.
+    /// </summary>
     internal static class ObfuscatedNameGenerator
     {
         private const string Prefix = "O_";

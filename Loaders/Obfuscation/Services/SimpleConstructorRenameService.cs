@@ -7,9 +7,12 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Loaders.Obfuscation.Services
 {
     /// <summary>
-    /// Syntactic fallback renamer: replaces constructor type names ("new ClassName(...)")
-    /// based solely on a provided class name map. Use this only if semantic renaming is
-    /// insufficient in some scenarios.
+    /// Syntactic fallback renamer that replaces constructor type names
+    /// ("new ClassName(...)") based solely on a provided class name map.
+    ///
+    /// This pass is intended to run after semantic renaming and only
+    /// touches object-creation expressions, leaving declarations and
+    /// other type usages unchanged.
     /// </summary>
     internal static class SimpleConstructorRenameService
     {

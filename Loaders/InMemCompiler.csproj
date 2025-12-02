@@ -332,8 +332,6 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="FileInfoCommand.cs" />
-    <None Include="FileInfoCommand_obf.cs" />
     <Compile Include="InMemCompiler.cs" />
     <Compile Include="Obfuscation\Rewriters\ClassCollectionRewriter.cs" />
     <Compile Include="Obfuscation\Rewriters\ClassObfuscationRewriter.cs" />
@@ -350,8 +348,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
-    <None Include="compilation-errors.log" />
-    <None Include="obf.log" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

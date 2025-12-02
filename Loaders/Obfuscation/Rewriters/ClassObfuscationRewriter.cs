@@ -9,7 +9,12 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Loaders.Obfuscation.Rewriters
 {
     /// <summary>
-    /// Renames class identifiers throughout the syntax tree using a provided name map.
+    /// Renames class identifiers throughout the syntax tree using a provided
+    /// name map.
+    ///
+    /// This rewriter performs a purely syntactic pass over type usages and
+    /// is kept as an optional/experimental layer on top of the primary
+    /// Roslyn-based semantic renaming performed by <see cref="ClassRenamer"/>.
     /// </summary>
     public sealed class ClassObfuscationRewriter : CSharpSyntaxRewriter
     {
@@ -22,7 +27,7 @@ namespace Loaders.Obfuscation.Rewriters
         private readonly IReadOnlyDictionary<string, string> _classNameMap;
 
         private static readonly object LogLock = new();
-        private static readonly string LogFilePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "obf.log"));
+        private static readonly string LogFilePath = Path.GetFullPath(Path.Combine(".", "obf.log"));
 
         // Keep logging light to avoid huge files but still enable debugging when needed.
         private static void LogDebug(string message)

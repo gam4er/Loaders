@@ -8,6 +8,10 @@ namespace Loaders.Obfuscation.Rewriters
 {
     /// <summary>
     /// Adds random overloads to methods to complicate control flow analysis.
+    ///
+    /// Overloads are only generated for suitable methods (no expression-bodied
+    /// members, no abstract/DllImport/default-parameter methods) to avoid
+    /// breaking signatures that are relied upon by external callers.
     /// </summary>
     public sealed class MethodOverloadRewriter : CSharpSyntaxRewriter
     {

@@ -10,6 +10,10 @@ namespace Loaders.Obfuscation.Rewriters
 {
     /// <summary>
     /// Rewrites string literals to obfuscated XOR + Base64 decoding expressions.
+    ///
+    /// The transformation deliberately skips critical contexts such as
+    /// attributes, const fields and DllImport signatures where literal
+    /// values must remain stable for the runtime.
     /// </summary>
     internal sealed class StringLiteralObfuscator : CSharpSyntaxRewriter
     {

@@ -7,7 +7,12 @@ using Loaders.Obfuscation.Utilities;
 namespace Loaders.Obfuscation.Rewriters
 {
     /// <summary>
-    /// Collects class declarations and builds a mapping between original and obfuscated names.
+    /// Collects class declarations and builds a mapping between original
+    /// class names and their obfuscated counterparts.
+    ///
+    /// The mapping is later used both by semantic (Roslyn-based) and
+    /// syntactic renamers to ensure consistent type names across the
+    /// obfuscated project.
     /// </summary>
     public sealed class ClassCollectionRewriter : CSharpSyntaxRewriter
     {

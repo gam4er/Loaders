@@ -11,12 +11,20 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Formatting;
 
+/// <summary>
+/// Entry point for the Seatbelt obfuscation pipeline.
+///
+/// The compiler copies the original Seatbelt project into an isolated
+/// working directory, runs all obfuscation steps over the copy and then
+/// compiles and executes the obfuscated binary in-memory.
+/// </summary>
 internal static class InMemCompiler
 {
     private const string SourceFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
     private const string OutputFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
     private const string ProjectFileName = "Seatbelt.csproj";
 
+    // Types that must not be renamed to avoid breaking interop/framework behavior.
     private static readonly IReadOnlyCollection<string> ExcludedClasses = new HashSet<string>
     {
         "Runtime",
@@ -46,21 +54,35 @@ internal static class InMemCompiler
 
     private static void Main()
     {
-        // Ensure a fresh copy of the project exists under the output folder.
+        // 1) Copy the original Seatbelt project into an isolated working folder
+        //    so the source tree is never modified in-place.
         PrepareOutputProject();
 
+        // 2) Load the copied csproj and enumerate all C# files and assembly references.
         var projectPaths = LoadProject(OutputFolder, ProjectFileName);
+
+        // 3) Rewrite string literals and remove comments in the working copy.
         ObfuscateStringLiterals(projectPaths.CsFiles);
+
+        // 4) Inject harmless method overloads to increase control-flow noise.
         AddMethodOverloads(projectPaths.CsFiles);
 
+        // 5) Collect all class declarations (except excluded infrastructure types)
+        //    and build a deterministic obfuscated name map.
         var classMap = CollectClassNameMap(projectPaths.CsFiles);
-        
-        // Semantic rename using Roslyn symbol APIs.
+
+        // 6) First, perform semantic renames using Roslyn symbol APIs so all type
+        //    references (base types, fields, parameters, object creations, etc.)
+        //    are updated consistently.
         ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
 
-        // Optional: syntactic fallback to rename constructor calls like 'new ClassName(...)'
+        // 7) Optionally, run a narrow syntactic pass to fix up remaining
+        //    constructor calls like "new ClassName(...)" that semantic
+        //    renaming may have missed in edge cases.
         SimpleConstructorRenameService.RenameConstructors(classMap, projectPaths.CsFiles);
 
+        // 8) Compile the obfuscated project and execute the resulting assembly
+        //    in-memory.
         Compile(projectPaths.CsFiles, projectPaths.References);
     }
 
@@ -194,7 +216,7 @@ internal static class InMemCompiler
         // Persist mapping to CSV to aid debugging / analysis of obfuscation.
         try
         {
-            var csvPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "class-map.csv"));
+            var csvPath = Path.GetFullPath(Path.Combine(".", "class-map.csv"));
             var csvDir = Path.GetDirectoryName(csvPath);
             if (!string.IsNullOrEmpty(csvDir))
             {
@@ -216,6 +238,13 @@ internal static class InMemCompiler
         return map;
     }
 
+    /// <summary>
+    /// Optional legacy syntactic class obfuscation pass.
+    ///
+    /// Kept for experimentation and debugging; the main pipeline relies on
+    /// semantic renaming via <see cref="ClassRenamer"/> and a focused
+    /// syntactic constructor pass.
+    /// </summary>
     private static void ApplyClassObfuscation(IEnumerable<string> csFiles, IReadOnlyDictionary<string, string> classMap)
     {
         var rewriter = new ClassObfuscationRewriter(classMap);
@@ -230,7 +259,7 @@ internal static class InMemCompiler
     }
 
     private static readonly string CompilationErrorsLogPath =
-        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "compilation-errors.log"));
+        Path.GetFullPath(Path.Combine(".", "compilation-errors.log"));
 
     private static void Compile(IEnumerable<string> csFiles, IReadOnlyList<string> references)
     {
