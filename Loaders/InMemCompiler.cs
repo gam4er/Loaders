@@ -28,18 +28,18 @@ internal static class InMemCompiler
     private static readonly IReadOnlyCollection<string> ExcludedClasses = new HashSet<string>
     {
         "Runtime",
-        "TextFormatterBase",
-        "CommandOutputTypeAttribute",
-        "CommandOutputType",
+        //"TextFormatterBase",
+        //"CommandOutputTypeAttribute",
+        //"CommandOutputType",
         "Advapi32",
         //"WindowsFirewallProfileSettings",
         "Principal",
-        "WindowsDefenderSettings",
-        "AsrRule",
-        "AsrSettings",
+        //"WindowsDefenderSettings",
+        //"AsrRule",
+        //"AsrSettings",
         "AuditEntry",
         "Iphlpapi",
-        "MTPuTTYConfig",
+        //"MTPuTTYConfig",
         "Kernel32",
         "Ntdll",
         "RegistryUtil",
@@ -326,6 +326,6 @@ internal static class InMemCompiler
         }
 
         File.WriteAllBytes(outputPath, ms.ToArray());
-        Assembly.Load(ms.ToArray()).EntryPoint?.Invoke(null, new object[] { new[] { "-group=all" } });
+        Assembly.Load(ms.ToArray()).EntryPoint?.Invoke(null, new object[] { new[] { "--help" } });
     }
 }
