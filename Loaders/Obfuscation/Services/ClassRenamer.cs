@@ -31,6 +31,7 @@ namespace Loaders.Obfuscation.Services
             {
                 var originalName = kvp.Key;
                 var obfuscatedName = kvp.Value;
+
                 foreach (var documentId in project.DocumentIds)
                 {
                     var document = solution.GetDocument(documentId);
@@ -66,6 +67,7 @@ namespace Loaders.Obfuscation.Services
                 project = solution.GetProject(project.Id);
             }
 
+            // Persist updated documents back to the physical files in the obfuscated project tree.
             foreach (var documentId in project.DocumentIds)
             {
                 var updatedDocument = solution.GetDocument(documentId);
@@ -75,9 +77,11 @@ namespace Loaders.Obfuscation.Services
                 }
 
                 var newText = updatedDocument.GetTextAsync().GetAwaiter().GetResult();
-                if (updatedDocument.FilePath != null)
+                var path = updatedDocument.FilePath;
+
+                if (!string.IsNullOrEmpty(path))
                 {
-                    File.WriteAllText(updatedDocument.FilePath, newText.ToString());
+                    File.WriteAllText(path, newText.ToString());
                 }
             }
         }
@@ -97,13 +101,19 @@ namespace Loaders.Obfuscation.Services
             foreach (var filePath in filePaths)
             {
                 var code = File.ReadAllText(filePath);
-                project = workspace
-                    .AddDocument(
-                        project.Id,
-                        Path.GetFileName(filePath),
-                        SourceText.From(code))//,
-                        //filePath: filePath)
-                    .Project;
+
+                // Associate document with its physical path using DocumentInfo + TextLoader
+                var documentId = DocumentId.CreateNewId(project.Id, Path.GetFileName(filePath));
+                var loader = TextLoader.From(TextAndVersion.Create(SourceText.From(code), VersionStamp.Default, filePath));
+
+                var documentInfo = DocumentInfo.Create(
+                    documentId,
+                    Path.GetFileName(filePath),
+                    filePath: filePath,
+                    loader: loader);
+
+                var solution = project.Solution.AddDocument(documentInfo);
+                project = solution.GetProject(project.Id);
             }
 
             return project;

@@ -24,8 +24,10 @@ namespace Loaders.Obfuscation.Rewriters
         private static readonly object LogLock = new();
         private static readonly string LogFilePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "obf.log"));
 
+        // Keep logging light to avoid huge files but still enable debugging when needed.
         private static void LogDebug(string message)
         {
+#if DEBUG
             var formatted = $"[ClassObfuscationRewriter] {DateTime.UtcNow:O} {message}{Environment.NewLine}";
 
             lock (LogLock)
@@ -38,6 +40,7 @@ namespace Loaders.Obfuscation.Rewriters
 
                 File.AppendAllText(LogFilePath, formatted);
             }
+#endif
         }
 
         public ClassObfuscationRewriter(IReadOnlyDictionary<string, string> classNameMap)
@@ -52,14 +55,9 @@ namespace Loaders.Obfuscation.Rewriters
 
             if (_classNameMap.TryGetValue(node.Identifier.Text, out newName))
             {
+                LogDebug($"Renaming class declaration '{node.Identifier.Text}' to '{newName}'.");
                 updatedNode = updatedNode.WithIdentifier(SyntaxFactory.Identifier(newName));
             }
-#if DEBUG
-            if (newName == "Bookmark")
-            {
-                Console.WriteLine("Bookmark");
-            }
-#endif
 
             var updatedAttributes = node.AttributeLists
                 .Select(attributeList => (AttributeListSyntax)Visit(attributeList));
@@ -87,7 +85,14 @@ namespace Loaders.Obfuscation.Rewriters
         {
             var identifier = node.Identifier.Text;
 
-            if (!IsTypeContext(node) && IsInReservedContext(node))
+            // If this identifier syntactically represents a type (generic arg, attribute, base type, cast, etc),
+            // we always allow class-map lookup even if it appears inside an argument or assignment.
+            bool typeContext = IsTypeContext(node);
+            bool reservedContext = IsInReservedContext(node);
+
+            LogDebug($"VisitIdentifierName '{identifier}', IsTypeContext={typeContext}, IsInReservedContext={reservedContext}, Parent={node.Parent?.Kind()}");
+
+            if (!typeContext && reservedContext)
             {
                 if (_classNameMap.ContainsKey(identifier))
                 {
@@ -179,6 +184,7 @@ namespace Loaders.Obfuscation.Rewriters
         {
             if (_classNameMap.TryGetValue(node.Identifier.Text, out var newName))
             {
+                LogDebug($"Renaming constructor '{node.Identifier.Text}' to '{newName}'.");
                 node = node.WithIdentifier(SyntaxFactory.Identifier(newName));
             }
 
@@ -225,8 +231,14 @@ namespace Loaders.Obfuscation.Rewriters
         {
             switch (typeSyntax)
             {
-                case IdentifierNameSyntax identifier when _classNameMap.TryGetValue(identifier.Identifier.Text, out var newName):
-                    return SyntaxFactory.IdentifierName(newName).WithTriviaFrom(identifier);
+                case IdentifierNameSyntax identifier:
+                    if (_classNameMap.TryGetValue(identifier.Identifier.Text, out var newName))
+                    {
+                        LogDebug($"[DEBUG] MapType IdentifierName {identifier.Identifier.Text} -> {newName}");
+                        return SyntaxFactory.IdentifierName(newName).WithTriviaFrom(identifier);
+                    }
+                    LogDebug($"[DEBUG] MapType IdentifierName {identifier.Identifier.Text} not in map");
+                    return (TypeSyntax)Visit(typeSyntax);
 
                 case AliasQualifiedNameSyntax aliasQualifiedName:
                     var visitedAliasLeft = MapType(aliasQualifiedName.Alias);
@@ -243,9 +255,9 @@ namespace Loaders.Obfuscation.Rewriters
                     var updatedGeneric = generic.WithTypeArgumentList(updatedTypeArgumentList);
                     if (_classNameMap.TryGetValue(generic.Identifier.Text, out var newGenericName))
                     {
+                        LogDebug($"[DEBUG] MapType Generic {generic.Identifier.Text} -> {newGenericName}");
                         updatedGeneric = updatedGeneric.WithIdentifier(SyntaxFactory.Identifier(newGenericName));
                     }
-
                     return updatedGeneric.WithTriviaFrom(generic);
 
                 case QualifiedNameSyntax qualified:
@@ -297,11 +309,26 @@ namespace Loaders.Obfuscation.Rewriters
         {
             var parent = node.Parent;
 
-            // Keep namespaces and attribute-related identifiers safe, but allow most other contexts
-            // so class/type identifiers used in expressions, variables, arguments, etc. can be renamed.
+            // Treat contexts where identifier clearly denotes a type as non-reserved so they are eligible
+            // for renaming via the map.
+            if (parent is ObjectCreationExpressionSyntax ||
+                parent is BaseTypeSyntax ||
+                parent is CastExpressionSyntax ||
+                parent is AttributeSyntax ||
+                parent is TypeArgumentListSyntax ||
+                parent is TypeParameterConstraintClauseSyntax ||
+                parent is VariableDeclarationSyntax ||
+                parent is ParameterSyntax)
+            {
+                return false;
+            }
+
             return IsReservedNamespace(node) ||
-                   parent is AttributeSyntax ||
-                   parent is AttributeArgumentSyntax;
+                   parent is AssignmentExpressionSyntax ||
+                   parent is ArgumentSyntax ||
+                   parent is PropertyDeclarationSyntax ||
+                   parent is FieldDeclarationSyntax ||
+                   parent is VariableDeclaratorSyntax;
         }
 
         private static bool IsTypeContext(SyntaxNode node)
@@ -309,6 +336,20 @@ namespace Loaders.Obfuscation.Rewriters
             for (var current = node; current != null; current = current.Parent)
             {
                 if (current is TypeSyntax)
+                {
+                    return true;
+                }
+
+                // Generic argument lists, attributes and casts are type-ish contexts.
+                if (current is TypeArgumentListSyntax ||
+                    current is AttributeSyntax ||
+                    current is CastExpressionSyntax ||
+                    current is BaseTypeSyntax ||
+                    current is ListPatternSyntax ||
+                    current is BaseListSyntax ||
+                    current is ObjectCreationExpressionSyntax ||
+                    current is ParameterSyntax ||
+                    current is VariableDeclarationSyntax)
                 {
                     return true;
                 }

@@ -46,50 +46,87 @@ internal static class InMemCompiler
 
     private static void Main()
     {
-        var projectPaths = LoadProject(SourceFolder, OutputFolder, ProjectFileName);
+        // Ensure a fresh copy of the project exists under the output folder.
+        PrepareOutputProject();
+
+        var projectPaths = LoadProject(OutputFolder, ProjectFileName);
         ObfuscateStringLiterals(projectPaths.CsFiles);
         AddMethodOverloads(projectPaths.CsFiles);
 
         var classMap = CollectClassNameMap(projectPaths.CsFiles);
-        ApplyClassObfuscation(projectPaths.CsFiles, classMap);
+        
+        // Semantic rename using Roslyn symbol APIs.
         ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
+
+        // Optional: syntactic fallback to rename constructor calls like 'new ClassName(...)'
+        // SimpleConstructorRenameService.RenameConstructors(classMap, projectPaths.CsFiles);
 
         Compile(projectPaths.CsFiles, projectPaths.References);
     }
 
-    private static (IReadOnlyList<string> CsFiles, IReadOnlyList<string> References) LoadProject(string sourceFolder, string outputFolder, string csprojName)
+    // Recursively copy the source project into the output folder so we never touch the original sources.
+    private static void PrepareOutputProject()
     {
-        XDocument csproj = XDocument.Load(Path.Combine(sourceFolder, csprojName));
-        XNamespace ns = csproj.Root?.Name.Namespace ?? throw new InvalidOperationException("Invalid csproj content");
-
-        var projectDirectory = Path.GetDirectoryName(Path.Combine(sourceFolder, csprojName)) ?? string.Empty;
-        var outputDirectory = Path.GetDirectoryName(Path.Combine(outputFolder, csprojName)) ?? string.Empty;
-
-        if (!string.IsNullOrEmpty(outputDirectory))
+        if (Directory.Exists(OutputFolder))
         {
-            Directory.CreateDirectory(outputDirectory);
+            Directory.Delete(OutputFolder, recursive: true);
         }
 
-        var outputCsprojPath = Path.Combine(outputDirectory, csprojName);
-        File.Copy(Path.Combine(sourceFolder, csprojName), outputCsprojPath, true);
+        Directory.CreateDirectory(OutputFolder);
+
+        foreach (var directory in Directory.GetDirectories(SourceFolder, "*", SearchOption.AllDirectories))
+        {
+            var relative = GetRelativePath(SourceFolder, directory);
+            Directory.CreateDirectory(Path.Combine(OutputFolder, relative));
+        }
+
+        foreach (var file in Directory.GetFiles(SourceFolder, "*", SearchOption.AllDirectories))
+        {
+            var relative = GetRelativePath(SourceFolder, file);
+            var destination = Path.Combine(OutputFolder, relative);
+            var destinationDir = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrEmpty(destinationDir))
+            {
+                Directory.CreateDirectory(destinationDir);
+            }
+
+            File.Copy(file, destination, overwrite: true);
+        }
+    }
+
+    // Simple relative path helper compatible with .NET Framework 4.8.
+    private static string GetRelativePath(string basePath, string fullPath)
+    {
+        var baseUri = new Uri(AppendDirectorySeparatorChar(basePath));
+        var fullUri = new Uri(fullPath);
+        var relativeUri = baseUri.MakeRelativeUri(fullUri);
+        var relativePath = Uri.UnescapeDataString(relativeUri.ToString());
+        return relativePath.Replace('/', Path.DirectorySeparatorChar);
+    }
+
+    private static string AppendDirectorySeparatorChar(string path)
+    {
+        if (!path.EndsWith(Path.DirectorySeparatorChar.ToString()) &&
+            !path.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
+        {
+            return path + Path.DirectorySeparatorChar;
+        }
+
+        return path;
+    }
+
+    private static (IReadOnlyList<string> CsFiles, IReadOnlyList<string> References) LoadProject(string projectRoot, string csprojName)
+    {
+        var csprojPath = Path.Combine(projectRoot, csprojName);
+        XDocument csproj = XDocument.Load(csprojPath);
+        XNamespace ns = csproj.Root?.Name.Namespace ?? throw new InvalidOperationException("Invalid csproj content");
+
+        var projectDirectory = Path.GetDirectoryName(csprojPath) ?? string.Empty;
 
         var csFiles = csproj
             .Descendants(ns + "Compile")
             .Attributes("Include")
-            .Select(a =>
-            {
-                var sourcePath = Path.Combine(projectDirectory, a.Value);
-                var destinationPath = Path.Combine(outputDirectory, a.Value);
-
-                var destinationFolder = Path.GetDirectoryName(destinationPath);
-                if (!string.IsNullOrEmpty(destinationFolder))
-                {
-                    Directory.CreateDirectory(destinationFolder);
-                }
-
-                File.Copy(sourcePath, destinationPath, true);
-                return destinationPath;
-            })
+            .Select(a => Path.Combine(projectDirectory, a.Value))
             .ToList();
 
         var references = csproj
@@ -149,10 +186,34 @@ internal static class InMemCompiler
             classCollector.Visit(syntaxTree.GetRoot());
         }
 
-        return classCollector.GetClassMap()
+        var map = classCollector.GetClassMap()
             .Where(pair => !ExcludedClasses.Contains(pair.Key))
             .OrderBy(pair => pair.Key)
             .ToDictionary(pair => pair.Key, pair => pair.Value);
+
+        // Persist mapping to CSV to aid debugging / analysis of obfuscation.
+        try
+        {
+            var csvPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "class-map.csv"));
+            var csvDir = Path.GetDirectoryName(csvPath);
+            if (!string.IsNullOrEmpty(csvDir))
+            {
+                Directory.CreateDirectory(csvDir);
+            }
+
+            using var writer = new StreamWriter(csvPath, false);
+            writer.WriteLine("Original,Obfuscated");
+            foreach (var kvp in map)
+            {
+                writer.WriteLine($"{kvp.Key},{kvp.Value}");
+            }
+        }
+        catch
+        {
+            // CSV generation is best-effort only; ignore any IO failures.
+        }
+
+        return map;
     }
 
     private static void ApplyClassObfuscation(IEnumerable<string> csFiles, IReadOnlyDictionary<string, string> classMap)
