@@ -332,8 +332,8 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
-    <AdditionalFiles Include="ChromiumBookmarksCommand.cs" />
-    <AdditionalFiles Include="ChromiumBookmarksCommand_obf.cs" />
+    <None Include="FileInfoCommand.cs" />
+    <None Include="FileInfoCommand_obf.cs" />
     <Compile Include="InMemCompiler.cs" />
     <Compile Include="Obfuscation\Rewriters\ClassCollectionRewriter.cs" />
     <Compile Include="Obfuscation\Rewriters\ClassObfuscationRewriter.cs" />
@@ -341,6 +341,7 @@
     <Compile Include="Obfuscation\Rewriters\MethodOverloadRewriter.cs" />
     <Compile Include="Obfuscation\Rewriters\StringLiteralObfuscator.cs" />
     <Compile Include="Obfuscation\Services\ClassRenamer.cs" />
+    <Compile Include="Obfuscation\Services\SimpleConstructorRenameService.cs" />
     <Compile Include="Obfuscation\Services\StringLiteralObfuscationService.cs" />
     <Compile Include="Obfuscation\Utilities\ObfuscatedNameGenerator.cs" />
     <Compile Include="GAC.cs" />

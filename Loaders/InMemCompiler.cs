@@ -59,7 +59,7 @@ internal static class InMemCompiler
         ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
 
         // Optional: syntactic fallback to rename constructor calls like 'new ClassName(...)'
-        // SimpleConstructorRenameService.RenameConstructors(classMap, projectPaths.CsFiles);
+        SimpleConstructorRenameService.RenameConstructors(classMap, projectPaths.CsFiles);
 
         Compile(projectPaths.CsFiles, projectPaths.References);
     }
