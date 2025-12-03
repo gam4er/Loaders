@@ -13,7 +13,7 @@ namespace Loaders.Obfuscation.Utilities
     /// </summary>
     internal static class ObfuscatedNameGenerator
     {
-        private const string Prefix = "O_";
+        private const string Prefix = "Microsoft";
 
         public static string Generate(string originalName)
         {
@@ -24,7 +24,7 @@ namespace Loaders.Obfuscation.Utilities
 
             using var sha256 = SHA256.Create();
             byte[] hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(originalName));
-            string shortHash = BitConverter.ToString(hashBytes).Replace("-", string.Empty).Substring(0, 8);
+            string shortHash = BitConverter.ToString(hashBytes).Replace("-", string.Empty).Substring(3, 13);
             return Prefix + shortHash;
         }
     }

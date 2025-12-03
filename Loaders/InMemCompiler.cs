@@ -20,36 +20,36 @@ using Microsoft.CodeAnalysis.Formatting;
 /// </summary>
 internal static class InMemCompiler
 {
-    private const string SourceFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
-    private const string OutputFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
+    private const string SourceFolder = "d:\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
+    private const string OutputFolder = "d:\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
     private const string ProjectFileName = "Seatbelt.csproj";
 
     // Types that must not be renamed to avoid breaking interop/framework behavior.
     private static readonly IReadOnlyCollection<string> ExcludedClasses = new HashSet<string>
     {
-        "Runtime",
+        //"Runtime",
         //"TextFormatterBase",
         //"CommandOutputTypeAttribute",
         //"CommandOutputType",
-        "Advapi32",
+        //"Advapi32",
         //"WindowsFirewallProfileSettings",
-        "Principal",
+        //"Principal",
         //"WindowsDefenderSettings",
         //"AsrRule",
         //"AsrSettings",
-        "AuditEntry",
-        "Iphlpapi",
+        //"AuditEntry",
+        //"Iphlpapi",
         //"MTPuTTYConfig",
-        "Kernel32",
-        "Ntdll",
-        "RegistryUtil",
-        "ExtensionMethods",
-        "MiscUtil",
-        "Shell32",
-        "SecurityUtil",
-        "NetAadJoinInfo",
-        "Secur32",
-        "FileUtil",
+        //"Kernel32",
+        //"Ntdll",
+        //"RegistryUtil",
+        //"ExtensionMethods",
+        //"MiscUtil",
+        //"Shell32",
+        //"SecurityUtil",
+        //"NetAadJoinInfo",
+        //"Secur32",
+        //"FileUtil",
     };
 
     private static void Main()
