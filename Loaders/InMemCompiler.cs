@@ -1,230 +1,331 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading;
 using System.Xml.Linq;
-
-using Loaders;
-
+using Loaders.Obfuscation.Rewriters;
+using Loaders.Obfuscation.Services;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Formatting;
-using Microsoft.VisualStudio.PlatformUI;
 
-class InMemCompiler
+/// <summary>
+/// Entry point for the Seatbelt obfuscation pipeline.
+///
+/// The compiler copies the original Seatbelt project into an isolated
+/// working directory, runs all obfuscation steps over the copy and then
+/// compiles and executes the obfuscated binary in-memory.
+/// </summary>
+internal static class InMemCompiler
 {
-    static void Main()
+    private const string SourceFolder = "d:\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
+    private const string OutputFolder = "d:\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
+    private const string ProjectFileName = "Seatbelt.csproj";
+
+    // Types that must not be renamed to avoid breaking interop/framework behavior.
+    private static readonly IReadOnlyCollection<string> ExcludedClasses = new HashSet<string>
     {
-        //Console.WriteLine( RandomMethodInvoker.RandomMethod());
+        //"Runtime",
+        //"TextFormatterBase",
+        //"CommandOutputTypeAttribute",
+        //"CommandOutputType",
+        //"Advapi32",
+        //"WindowsFirewallProfileSettings",
+        //"Principal",
+        //"WindowsDefenderSettings",
+        //"AsrRule",
+        //"AsrSettings",
+        //"AuditEntry",
+        //"Iphlpapi",
+        //"MTPuTTYConfig",
+        //"Kernel32",
+        //"Ntdll",
+        //"RegistryUtil",
+        //"ExtensionMethods",
+        //"MiscUtil",
+        //"Shell32",
+        //"SecurityUtil",
+        //"NetAadJoinInfo",
+        //"Secur32",
+        //"FileUtil",
+    };
 
-        string sourceFolder = "d:\\Documents\\GitHub\\Seatbelt\\Seatbelt\\";
-        //string sourceFolder = "D:\\Documents\\GitHub\\WhiskerOrig\\Whisker\\";
+    private static void Main()
+    {
+        // 1) Copy the original Seatbelt project into an isolated working folder
+        //    so the source tree is never modified in-place.
+        PrepareOutputProject();
 
-        XDocument csproj = XDocument.Load(sourceFolder + "Seatbelt.csproj");
-        //XDocument csproj = XDocument.Load(sourceFolder + "Whisker.csproj");
-        XNamespace ns = csproj.Root.Name.Namespace;
+        // 2) Load the copied csproj and enumerate all C# files and assembly references.
+        var projectPaths = LoadProject(OutputFolder, ProjectFileName);
 
-        // Получаем пути к исходным файлам
-        var csFiles = csproj.Descendants(ns + "Compile").Attributes("Include").Select(a => Path.Combine(Path.GetDirectoryName(sourceFolder + "Seatbelt.csproj"), a.Value)).ToList();
+        // 3) Rewrite string literals and remove comments in the working copy.
+        ObfuscateStringLiterals(projectPaths.CsFiles);
 
-        // Получаем зависимости
-        var references = csproj.Descendants(ns + "Reference").Attributes("Include").Select(a => a.Value).ToList();
+        // 4) Inject harmless method overloads to increase control-flow noise.
+        AddMethodOverloads(projectPaths.CsFiles);
 
-        if (csFiles.Count == 0)
+        // 5) Collect all class declarations (except excluded infrastructure types)
+        //    and build a deterministic obfuscated name map.
+        var classMap = CollectClassNameMap(projectPaths.CsFiles);
+
+        // 6) First, perform semantic renames using Roslyn symbol APIs so all type
+        //    references (base types, fields, parameters, object creations, etc.)
+        //    are updated consistently.
+        ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
+
+        // 7) Optionally, run a narrow syntactic pass to fix up remaining
+        //    constructor calls like "new ClassName(...)" that semantic
+        //    renaming may have missed in edge cases.
+        SimpleConstructorRenameService.RenameConstructors(classMap, projectPaths.CsFiles);
+
+        // 8) Compile the obfuscated project and execute the resulting assembly
+        //    in-memory.
+        Compile(projectPaths.CsFiles, projectPaths.References);
+    }
+
+    // Recursively copy the source project into the output folder so we never touch the original sources.
+    private static void PrepareOutputProject()
+    {
+        if (Directory.Exists(OutputFolder))
         {
-            Console.WriteLine("No C# files found in the specified project.");
-            return;
+            Directory.Delete(OutputFolder, recursive: true);
         }
 
+        Directory.CreateDirectory(OutputFolder);
+
+        foreach (var directory in Directory.GetDirectories(SourceFolder, "*", SearchOption.AllDirectories))
+        {
+            var relative = GetRelativePath(SourceFolder, directory);
+            Directory.CreateDirectory(Path.Combine(OutputFolder, relative));
+        }
+
+        foreach (var file in Directory.GetFiles(SourceFolder, "*", SearchOption.AllDirectories))
+        {
+            var relative = GetRelativePath(SourceFolder, file);
+            var destination = Path.Combine(OutputFolder, relative);
+            var destinationDir = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrEmpty(destinationDir))
+            {
+                Directory.CreateDirectory(destinationDir);
+            }
+
+            File.Copy(file, destination, overwrite: true);
+        }
+    }
+
+    // Simple relative path helper compatible with .NET Framework 4.8.
+    private static string GetRelativePath(string basePath, string fullPath)
+    {
+        var baseUri = new Uri(AppendDirectorySeparatorChar(basePath));
+        var fullUri = new Uri(fullPath);
+        var relativeUri = baseUri.MakeRelativeUri(fullUri);
+        var relativePath = Uri.UnescapeDataString(relativeUri.ToString());
+        return relativePath.Replace('/', Path.DirectorySeparatorChar);
+    }
+
+    private static string AppendDirectorySeparatorChar(string path)
+    {
+        if (!path.EndsWith(Path.DirectorySeparatorChar.ToString()) &&
+            !path.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
+        {
+            return path + Path.DirectorySeparatorChar;
+        }
+
+        return path;
+    }
+
+    private static (IReadOnlyList<string> CsFiles, IReadOnlyList<string> References) LoadProject(string projectRoot, string csprojName)
+    {
+        var csprojPath = Path.Combine(projectRoot, csprojName);
+        XDocument csproj = XDocument.Load(csprojPath);
+        XNamespace ns = csproj.Root?.Name.Namespace ?? throw new InvalidOperationException("Invalid csproj content");
+
+        var projectDirectory = Path.GetDirectoryName(csprojPath) ?? string.Empty;
+
+        var csFiles = csproj
+            .Descendants(ns + "Compile")
+            .Attributes("Include")
+            .Select(a => Path.Combine(projectDirectory, a.Value))
+            .ToList();
+
+        var references = csproj
+            .Descendants(ns + "Reference")
+            .Attributes("Include")
+            .Select(a => a.Value)
+            .ToList();
+
+        if (!csFiles.Any())
+        {
+            throw new InvalidOperationException("No C# files found in the specified project.");
+        }
+
+        return (csFiles, references);
+    }
+
+    private static void ObfuscateStringLiterals(IEnumerable<string> csFiles)
+    {
         foreach (var csFile in csFiles)
         {
-            string sourceCode = File.ReadAllText(csFile);
-            SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);            
-            
-            if (csFile.Contains("AssemblyInfo.cs"))            
+            if (csFile.IndexOf("AssemblyInfo.cs", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
                 continue;
-                        
-            syntaxTree = ObfuscateStringLiterals.AddUsingsNoComments(syntaxTree);
-            syntaxTree = ObfuscateStringLiterals.Obfuscate(syntaxTree);  // Обфускация
-            var obfuscatedCode = syntaxTree.GetRoot().ToFullString();
-            File.WriteAllText(csFile, obfuscatedCode);
-        }
+            }
 
+            var sourceCode = File.ReadAllText(csFile);
+            var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
+
+            syntaxTree = StringLiteralObfuscationService.RemoveCommentsAndEnsureUsings(syntaxTree);
+            syntaxTree = StringLiteralObfuscationService.ObfuscateStrings(syntaxTree);
+
+            File.WriteAllText(csFile, syntaxTree.GetRoot().ToFullString());
+        }
+    }
+
+    private static void AddMethodOverloads(IEnumerable<string> csFiles)
+    {
+        foreach (var csFile in csFiles)
+        {
+            var sourceCode = File.ReadAllText(csFile);
+            var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
+            var rewriter = new MethodOverloadRewriter();
+            var newRoot = rewriter.Visit(syntaxTree.GetRoot());
+            var formattedRoot = Formatter.Format(newRoot, new AdhocWorkspace());
+            File.WriteAllText(csFile, formattedRoot.ToFullString());
+        }
+    }
+
+    private static Dictionary<string, string> CollectClassNameMap(IEnumerable<string> csFiles)
+    {
+        var classCollector = new ClassCollectionRewriter();
 
         foreach (var csFile in csFiles)
         {
-            string sourceCode = File.ReadAllText(csFile);
-
-            SyntaxTree tree = CSharpSyntaxTree.ParseText(sourceCode);
-            var root = tree.GetRoot();
-
-            var rewriter = new MethodOverloadRewriter();
-            var newRoot = rewriter.Visit(root);
-
-            var formattedRoot = Formatter.Format(newRoot, new AdhocWorkspace());
-            //Console.WriteLine(formattedRoot.ToFullString());
-            File.WriteAllText(csFile, formattedRoot.ToFullString());
-
-        }
-
-        //return;
-
-        Dictionary<string, string> classMap = new Dictionary<string, string>();
-        ClassesEnum classCollector = new ClassesEnum();
-        foreach (var csFile in csFiles) 
-        {
-            string sourceCode = File.ReadAllText(csFile);
-            SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
+            var sourceCode = File.ReadAllText(csFile);
+            var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
             classCollector.Visit(syntaxTree.GetRoot());
         }
-        
-        classMap = classCollector.GetClassMap().OrderBy(n => n.Key).ToDictionary(n => n.Key, n=> n.Value);
 
-        classMap.Remove("Runtime");
-        classMap.Remove("TextFormatterBase");
-        classMap.Remove("CommandOutputTypeAttribute");
-        classMap.Remove("CommandOutputType");
-        //classMap.Remove("CommandBase");
-        //classMap.Remove("CommandDTOBase");
-        classMap.Remove("Advapi32");
-        classMap.Remove("WindowsFirewallProfileSettings");
-        classMap.Remove("Principal");
-        classMap.Remove("WindowsDefenderSettings");
-        classMap.Remove("AsrRule");
-        classMap.Remove("AsrSettings");
-        classMap.Remove("AuditEntry");
-        classMap.Remove("Iphlpapi");
-        classMap.Remove("MTPuTTYConfig");
-        classMap.Remove("Kernel32");
-        classMap.Remove("Ntdll");
-        classMap.Remove("MTPuTTYConfig");
-        classMap.Remove("RegistryUtil");
-        classMap.Remove("ExtensionMethods");
-        classMap.Remove("MiscUtil");
-        classMap.Remove("Shell32");
-        classMap.Remove("SecurityUtil");
-        classMap.Remove("MiscUtil");
-        classMap.Remove("NetAadJoinInfo");
-        classMap.Remove("Secur32");
-        classMap.Remove("FileUtil");
+        var map = classCollector.GetClassMap()
+            .Where(pair => !ExcludedClasses.Contains(pair.Key))
+            .OrderBy(pair => pair.Key)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
 
-        //Dictionary<string, SyntaxTree> newST = new Dictionary<string, SyntaxTree>();
-        //ClassObfuscatorAndNormalizer renamer = new ClassObfuscatorAndNormalizer(all.Where(n => !classMap.ContainsKey( n.Key)).ToDictionary(n => n.Key, n => n.Value));
+        // Persist mapping to CSV to aid debugging / analysis of obfuscation.
+        try
+        {
+            var csvPath = Path.GetFullPath(Path.Combine(".", "class-map.csv"));
+            var csvDir = Path.GetDirectoryName(csvPath);
+            if (!string.IsNullOrEmpty(csvDir))
+            {
+                Directory.CreateDirectory(csvDir);
+            }
 
-        ClassObfuscatorAndNormalizer renamer = new ClassObfuscatorAndNormalizer(classMap);
+            using var writer = new StreamWriter(csvPath, false);
+            writer.WriteLine("Original,Obfuscated");
+            foreach (var kvp in map)
+            {
+                writer.WriteLine($"{kvp.Key},{kvp.Value}");
+            }
+        }
+        catch
+        {
+            // CSV generation is best-effort only; ignore any IO failures.
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Optional legacy syntactic class obfuscation pass.
+    ///
+    /// Kept for experimentation and debugging; the main pipeline relies on
+    /// semantic renaming via <see cref="ClassRenamer"/> and a focused
+    /// syntactic constructor pass.
+    /// </summary>
+    private static void ApplyClassObfuscation(IEnumerable<string> csFiles, IReadOnlyDictionary<string, string> classMap)
+    {
+        var rewriter = new ClassObfuscationRewriter(classMap);
+
         foreach (var csFile in csFiles)
         {
-            string sourceCode = File.ReadAllText(csFile);
-            SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
-            var newRoot = renamer.Visit(syntaxTree.GetRoot());            
+            var sourceCode = File.ReadAllText(csFile);
+            var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
+            var newRoot = rewriter.Visit(syntaxTree.GetRoot());
             File.WriteAllText(csFile, newRoot.ToFullString());
         }
-        
-        ClassRenamer.RenameClassesInFiles(classMap, csFiles);
+    }
 
-        foreach (var csFile in csFiles)
-        {
-            string sourceCode = File.ReadAllText(csFile);
-            foreach (var t in classMap)
-            {
-                string existingStr = "(" + t.Key + ")";
-                string newStr = "(" + t.Value + ")";
-                sourceCode = sourceCode.
-                    Replace(existingStr,newStr).
-                    Replace("List<" + t.Key + ">","List<" + t.Value + ">").
-                    Replace("new "+ t.Key + "(", "new " + t.Value + "(");
+    private static readonly string CompilationErrorsLogPath =
+        Path.GetFullPath(Path.Combine(".", "compilation-errors.log"));
 
-                //new ScheduledTaskTrigger();
-                //new Bookmark(
-                //new List<AntiVirusDTO>();
-                //new SortedDictionary<uint, ArpTableDTO>();
-                //internal class O_AD14D66A : CommandDTOBase
-                //O_CA3CF3AC CurrentWifiProfileEntry = new WifiProfileEntry
-                //var adapterIdToInterfaceMap = new SortedDictionary<uint, ArpTableDTO>();
-                //var sections = IniFileHelper.ReadSections(classicFilePath);
-            }
-            try
-            {
-                File.WriteAllText(csFile, sourceCode);
-            }
-            catch (Exception)
-            {
-                Thread.Sleep(5000);
-                File.WriteAllText(csFile, sourceCode);
-            }
-        }
+    private static void Compile(IEnumerable<string> csFiles, IReadOnlyList<string> references)
+    {
+        var metadataReferences = new List<MetadataReference>();
 
-        List<MetadataReference> metadataReferences = new List<MetadataReference>();
-
-        // Добавляем зависимости из .csproj
         foreach (var reference in references)
         {
-            var assembly = GAC.FindAssemblyForNamespace(reference);
-            if (assembly != null)
+            var assemblies = Loaders.GAC.FindAssemblyForNamespace(reference);
+            if (assemblies != null)
             {
-                foreach (var a in assembly)
-                {
-                    metadataReferences.Add(MetadataReference.CreateFromFile(a.Location));
-                }
+                metadataReferences.AddRange(assemblies.Select(assembly => MetadataReference.CreateFromFile(assembly.Location)));
             }
             else
             {
                 Console.WriteLine($"Assembly for namespace '{reference}' not found.");
             }
         }
-        var assemblies = GAC.FindAssemblyForNamespace("System.Diagnostics.Eventing.Reader");
-        metadataReferences.AddRange(assemblies.Select(n => MetadataReference.CreateFromFile(n.Location)));
+
+        var eventingAssemblies = Loaders.GAC.FindAssemblyForNamespace("System.Diagnostics.Eventing.Reader");
+        if (eventingAssemblies != null)
+        {
+            metadataReferences.AddRange(eventingAssemblies.Select(assembly => MetadataReference.CreateFromFile(assembly.Location)));
+        }
 
         var options = new CSharpCompilationOptions(
             OutputKind.ConsoleApplication,
             optimizationLevel: OptimizationLevel.Release,
             allowUnsafe: false);
 
+        // Ensure common framework assemblies used by injected noise code are referenced explicitly.
+        var systemConfigurationAssembly = typeof(System.Configuration.ConfigurationElementCollection).Assembly.Location;
+        metadataReferences.Add(MetadataReference.CreateFromFile(systemConfigurationAssembly));
+
         var compilation = CSharpCompilation.Create(Path.GetRandomFileName(), options: options);
-
-        Dictionary<string, SyntaxTree> syntaxTrees = new Dictionary<string, SyntaxTree>();
-
-        foreach (var csFile in csFiles)
-        {
-            string sourceCode = File.ReadAllText(csFile);
-            SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
-            syntaxTrees [csFile] = syntaxTree;
-        }
-
-        compilation = compilation.AddSyntaxTrees(syntaxTrees.Select(t => t.Value));
+        var syntaxTrees = csFiles.ToDictionary(file => file, file => CSharpSyntaxTree.ParseText(File.ReadAllText(file)));
+        compilation = compilation.AddSyntaxTrees(syntaxTrees.Values);
         compilation = compilation.AddReferences(metadataReferences);
-        string outputPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "Output.exe");
 
-        using (var ms = new MemoryStream())
+        var outputPath = Path.Combine(OutputFolder, "Output.exe");
+
+        Directory.CreateDirectory(OutputFolder);
+
+        using var ms = new MemoryStream();
+        EmitResult result = compilation.Emit(ms);
+
+        if (!result.Success)
         {
-            EmitResult result = compilation.Emit(ms);
+            IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error);
+            Console.WriteLine($"Compilation failed occurs {failures.Count()} errors");
 
-            if (!result.Success)
+            var compilationErrorsDirectory = Path.GetDirectoryName(CompilationErrorsLogPath);
+            if (!string.IsNullOrEmpty(compilationErrorsDirectory))
             {
-                IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic =>
-                    diagnostic.IsWarningAsError ||
-                    diagnostic.Severity == DiagnosticSeverity.Error);
-
-                Console.WriteLine($"Compilation failed occurs {failures.Count()} errors");
-
-                foreach (Diagnostic diagnostic in failures)
-                {
-                    Console.Error.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);
-                }
+                Directory.CreateDirectory(compilationErrorsDirectory);
             }
-            else
+
+            using var logWriter = new StreamWriter(CompilationErrorsLogPath, append: false);
+            foreach (Diagnostic diagnostic in failures)
             {
-                //ms.Seek(0, SeekOrigin.Begin);
-                File.WriteAllBytes(outputPath,ms.ToArray());
-                Assembly.Load(ms.ToArray()).EntryPoint.Invoke(null, new object [] { new string [] { "arg1", "arg2", "etc" } });
-                return;
+                Console.Error.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);
+                logWriter.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);
             }
+            return;
         }
+
+        File.WriteAllBytes(outputPath, ms.ToArray());
+        Assembly.Load(ms.ToArray()).EntryPoint?.Invoke(null, new object[] { new[] { "--help" } });
     }
 }

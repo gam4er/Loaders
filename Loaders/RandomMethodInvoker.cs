@@ -10,68 +10,66 @@ using System.Threading.Tasks;
 
 namespace Loaders
 {
+    /// <summary>
+    /// Generates small, harmless blocks of reflective invocation code
+    /// that can be injected into obfuscated methods as noise.
+    ///
+    /// The generated code wraps a random instance method call from a
+    /// limited set of safe framework assemblies in nested try/catch and
+    /// Task.Run so failures are silently ignored.
+    /// </summary>
     internal class RandomMethodInvoker
     {
+        private static readonly Random _random = new Random();
 
         public static string RandomMethod()
         {
-            // Загрузка сборки System.DirectoryServices
-            var assembly = typeof(System.IO.Directory).Assembly;
+            // Pick a starting assembly from a small set of stable framework types.
+            var candidateAssemblies = new[]
+            {
+                typeof(System.IO.Directory).Assembly,
+                typeof(System.Text.StringBuilder).Assembly,
+                typeof(System.Diagnostics.Process).Assembly
+            };
+
+            var assembly = candidateAssemblies[_random.Next(candidateAssemblies.Length)];
 
             // Получение всех типов в сборке
             var types = assembly.GetTypes();
             Type type = null;
 
             List<MethodInfo> methods = new List<MethodInfo>();
-            var random = new Random();
 
-            do {
+            do
+            {
                 // Выбор случайного типа из сборки
-                type = types [random.Next(types.Length)];
+                type = types[_random.Next(types.Length)];
 
                 // Пропускаем типы, которые не могут быть использованы
                 if (type.IsAbstract ||
                     type.IsInterface ||
                     type.IsNotPublic ||
-                    type.IsGenericType || // Исключаем обобщенные типы
-                    !type.GetConstructors().Any(c => c.GetParameters().Length == 0))
+                    type.IsGenericType ||
+                    !type.GetConstructors().Any(c => c.GetParameters().Length == 0) ||
+                    IsInfrastructureType(type))
                 {
                     continue; // Пропускаем недопустимые типы
                 }
 
                 if (!IsValidType(type))
+                {
                     continue;
+                }
 
                 // Получение всех методов у выбранного типа
-                methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
-                              .Where(m => m.GetParameters().All(p => p.ParameterType.IsValueType || p.ParameterType.IsGenericType)
-                                    && m.GetParameters().Length > 0)
+                methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                               .Where(IsValidMethod)
-                              .Where(m => m.IsPublic) // Фильтрация только публичных методов
-                              .Where(m => !m.IsStatic) // Исключаем статические методы
-                              .Where(m => !m.Name.StartsWith("set_Item") && !m.Name.StartsWith("get_Item")) // Исключаем индексаторы
-                              .Where(m => !m.Name.StartsWith("op_")) // Исключаем операторы
-                              .Where(m => !m.Name.StartsWith("get_") && !m.Name.StartsWith("set_")) // Исключаем методы доступа к полям
-                              .Where(m => !m.Name.StartsWith("add_") && !m.Name.StartsWith("remove_")) // Исключаем методы событий
-                              .Where(m => !m.IsConstructor) // Исключаем конструкторы
-                              .Where(m => !m.GetParameters().Any(p => // Исключаем методы с типами аргументов, связанными с сборками
-                                    p.ParameterType == typeof(System.Type) ||
-                                    p.ParameterType == typeof(System.Reflection.Assembly) ||
-                                    p.ParameterType == typeof(System.Reflection.Module) ||
-                                    p.ParameterType == typeof(System.Reflection.MemberInfo) ||
-                                    p.ParameterType == typeof(System.Delegate) ||
-                                    p.ParameterType.FullName?.StartsWith("System.Func`") == true ||
-                                    p.ParameterType.FullName?.StartsWith("System.Action`") == true ||
-                                    p.ParameterType.FullName?.Contains("`") == true ||
-                                    p.ParameterType.FullName?.Contains("+") == true ||
-                                    p.ParameterType.FullName?.Contains("Func") == true || // Исключаем методы с типами, содержащими Func<>
-                                    p.ParameterType.FullName?.Contains("Action") == true)) // Исключаем методы с типами, содержащими Action<>
                               .ToList();
 
             } while (methods.Count == 0);
 
             // Выбор случайного метода
-            var method = methods [random.Next(methods.Count)];
+            var method = methods[_random.Next(methods.Count)];
             var methodName = method.Name;
 
             // Генерация случайных аргументов для метода
@@ -80,84 +78,85 @@ namespace Loaders
             // Формирование строки вызова метода в блоке try/catch с Task.Run
             var code = GenerateInvocationCode(type, methodName, arguments);
 
-            // Вывод кода на экран
+            // Возвращаем сгенерированный безвредный фрагмент вызова
             return code;
         }
 
-        private static object [] GenerateRandomArguments(ParameterInfo [] parameters)
+        private static object[] GenerateRandomArguments(ParameterInfo[] parameters)
         {
-            var random = new Random();
             var args = new List<object>();
 
             foreach (var param in parameters)
             {
-                if (param.ParameterType == typeof(int))
+                var paramType = param.ParameterType;
+
+                if (paramType == typeof(int) || paramType == typeof(int?))
                 {
-                    args.Add(random.Next(0, 100));
+                    args.Add(_random.Next(0, 100));
                 }
-                else if (param.ParameterType == typeof(string))
+                else if (paramType == typeof(string))
                 {
-                    args.Add("\"" + Guid.NewGuid().ToString() + "\""); // Случайная строка
+                    args.Add("\"" + Guid.NewGuid().ToString() + "\"");
                 }
-                else if (param.ParameterType == typeof(bool))
+                else if (paramType == typeof(bool) || paramType == typeof(bool?))
                 {
-                    args.Add(random.Next(0, 2) == 0 ? "false" : "true");
+                    args.Add(_random.Next(0, 2) == 0 ? "false" : "true");
                 }
-                else if (param.ParameterType == typeof(double))
+                else if (paramType == typeof(double) || paramType == typeof(double?))
                 {
-                    args.Add(random.NextDouble().ToString("F2"));
+                    args.Add(_random.NextDouble().ToString("F2"));
                 }
-                else if (param.ParameterType == typeof(long))
+                else if (paramType == typeof(long) || paramType == typeof(long?))
                 {
-                    args.Add(((long)random.Next(0, 1000000)).ToString());
+                    args.Add(((long)_random.Next(0, 1000000)).ToString());
                 }
-                else if (param.ParameterType == typeof(float))
+                else if (paramType == typeof(float) || paramType == typeof(float?))
                 {
-                    args.Add(((float)random.NextDouble()).ToString("F2"));
+                    args.Add(((float)_random.NextDouble()).ToString("F2"));
                 }
-                else if (param.ParameterType == typeof(char))
+                else if (paramType == typeof(char) || paramType == typeof(char?))
                 {
-                    args.Add("'" + (char)random.Next('a', 'z') + "'");
+                    args.Add("'" + (char)_random.Next('a', 'z') + "'");
                 }
-                else if (param.ParameterType == typeof(byte))
+                else if (paramType == typeof(byte) || paramType == typeof(byte?))
                 {
-                    args.Add((byte)random.Next(0, 256));
+                    args.Add((byte)_random.Next(0, 256));
                 }
-                else if (param.ParameterType == typeof(sbyte))
+                else if (paramType == typeof(sbyte) || paramType == typeof(sbyte?))
                 {
-                    args.Add((sbyte)random.Next(-128, 127));
+                    args.Add((sbyte)_random.Next(-128, 127));
                 }
-                else if (param.ParameterType == typeof(short))
+                else if (paramType == typeof(short) || paramType == typeof(short?))
                 {
-                    args.Add((short)random.Next(-32768, 32767));
+                    args.Add((short)_random.Next(short.MinValue, short.MaxValue));
                 }
-                else if (param.ParameterType == typeof(ushort))
+                else if (paramType == typeof(ushort) || paramType == typeof(ushort?))
                 {
-                    args.Add((ushort)random.Next(0, 65535));
+                    args.Add((ushort)_random.Next(0, ushort.MaxValue));
                 }
-                else if (param.ParameterType == typeof(uint))
+                else if (paramType == typeof(uint) || paramType == typeof(uint?))
                 {
-                    args.Add((uint)random.Next(0, int.MaxValue));
+                    args.Add((uint)_random.Next(0, int.MaxValue));
                 }
-                else if (param.ParameterType == typeof(ulong))
+                else if (paramType == typeof(ulong) || paramType == typeof(ulong?))
                 {
-                    args.Add((ulong)(random.Next(0, int.MaxValue) * 2L));
+                    args.Add((ulong)(_random.Next(0, int.MaxValue) * 2L));
                 }
-                else if (param.ParameterType == typeof(decimal))
+                else if (paramType == typeof(decimal) || paramType == typeof(decimal?))
                 {
-                    args.Add(((decimal)random.NextDouble()).ToString("F2"));
+                    args.Add(((decimal)_random.NextDouble()).ToString("F2"));
                 }
                 else
                 {
-                    // Создание значения по умолчанию для других типов
-                    args.Add($"new {param.ParameterType.FullName}()");
+                    // Fallback: use default(T) by emitting a cast expression in code.
+                    args.Add($"default({paramType.FullName})");
                 }
             }
 
             return args.ToArray();
         }
 
-        private static string GenerateInvocationCode(Type type, string methodName, object [] arguments)
+        private static string GenerateInvocationCode(Type type, string methodName, object[] arguments)
         {
             // Получаем полное имя типа и заменяем "+" на "."
             string typeName = type.FullName.Replace('+', '.');
@@ -166,7 +165,7 @@ namespace Loaders
             if (type.IsGenericType)
             {
                 // Форматируем имя типа, убирая символы `1, `2 и т.д., используемые для обозначения обобщенных типов
-                typeName = typeName.Split('`') [0];
+                typeName = typeName.Split('`')[0];
 
                 // Получение имен аргументов обобщенного типа
                 var genericArgs = string.Join(", ", type.GetGenericArguments().Select(t =>
@@ -181,7 +180,7 @@ namespace Loaders
 
             string args = string.Join(", ", arguments);
 
-            return $@"
+            return $@"#pragma warning disable CS0618
 try
 {{
     Task.Run(() =>
@@ -198,27 +197,114 @@ try
 }}
 catch (Exception)
 {{
-}}";
+}}
+#pragma warning restore CS0618";
         }
 
         private static bool IsValidType(Type type)
         {
-            // Пропускаем типы с типовыми параметрами (generics) и недоступные типы
+            // Skip generic and non-public types to reduce the chance of
+            // hitting unexpected or security-sensitive APIs.
             return !type.IsGenericType && type.IsPublic;
         }
-        private static bool IsValidMethod(MethodInfo method)
+
+        private static bool IsInfrastructureType(Type type)
         {
-            // Пропускаем методы с типовыми параметрами или недоступные методы
-            return method.IsPublic &&
-                   !method.ContainsGenericParameters && // Исключаем методы с типовыми параметрами
-                   !method.IsGenericMethod && // Исключаем обобщенные методы
-                   !method.GetParameters().Any(p => // Пропускаем методы с недопустимыми типами параметров
-                       p.ParameterType.IsGenericType || // Исключаем типы с типовыми параметрами
-                       p.ParameterType.IsNotPublic || // Исключаем непубличные типы
-                       p.ParameterType.FullName?.Contains("`") == true || // Исключаем обобщенные типы
-                       p.ParameterType.FullName?.Contains("+") == true); // Исключаем вложенные типы
+            var fullName = type.FullName ?? string.Empty;
+
+            // Heuristically exclude infrastructure types that are known to be
+            // backed by obsolete or internal-only APIs, in particular some
+            // System.Net HTTP types.
+            if (fullName.StartsWith("System.Net.HttpWebRequest", StringComparison.Ordinal) ||
+                fullName.StartsWith("System.Net.HttpWebResponse", StringComparison.Ordinal) ||
+                fullName.StartsWith("System.Net.HttpListener", StringComparison.Ordinal) ||
+                fullName.StartsWith("System.Net.Configuration.", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            return false;
         }
 
+        private static bool IsValidMethod(MethodInfo method)
+        {
+            // We only want instance methods with parameters we can safely
+            // generate literals for (primitives, nullable primitives, string).
+            if (!method.IsPublic || method.IsStatic || method.IsConstructor)
+            {
+                return false;
+            }
+
+            if (method.ContainsGenericParameters || method.IsGenericMethod)
+            {
+                return false;
+            }
+
+            if (method.Name.StartsWith("get_", StringComparison.Ordinal) ||
+                method.Name.StartsWith("set_", StringComparison.Ordinal) ||
+                method.Name.StartsWith("add_", StringComparison.Ordinal) ||
+                method.Name.StartsWith("remove_", StringComparison.Ordinal) ||
+                method.Name.StartsWith("op_", StringComparison.Ordinal) ||
+                method.Name.StartsWith("get_Item", StringComparison.Ordinal) ||
+                method.Name.StartsWith("set_Item", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var parameters = method.GetParameters();
+            if (parameters.Length == 0)
+            {
+                return false;
+            }
+
+            // Reject whole overload families where any overload uses string/char
+            // parameters, because our simple literal generation can be ambiguous
+            // across those overloads.
+            var overloads = method.DeclaringType?.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                            .Where(m => m.Name == method.Name) ?? Enumerable.Empty<MethodInfo>();
+
+            foreach (var overload in overloads)
+            {
+                foreach (var p in overload.GetParameters())
+                {
+                    var ot = p.ParameterType;
+                    if (ot == typeof(string) || ot == typeof(char))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            // Now ensure all parameters on the chosen method are from the set
+            // we know how to generate consistent literals for.
+            foreach (var p in parameters)
+            {
+                var t = p.ParameterType;
+
+                if (t == typeof(int) || t == typeof(int?) ||
+                    t == typeof(string) ||
+                    t == typeof(bool) || t == typeof(bool?) ||
+                    t == typeof(double) || t == typeof(double?) ||
+                    t == typeof(long) || t == typeof(long?) ||
+                    t == typeof(float) || t == typeof(float?) ||
+                    t == typeof(char) || t == typeof(char?) ||
+                    t == typeof(byte) || t == typeof(byte?) ||
+                    t == typeof(sbyte) || t == typeof(sbyte?) ||
+                    t == typeof(short) || t == typeof(short?) ||
+                    t == typeof(ushort) || t == typeof(ushort?) ||
+                    t == typeof(uint) || t == typeof(uint?) ||
+                    t == typeof(ulong) || t == typeof(ulong?) ||
+                    t == typeof(decimal) || t == typeof(decimal?))
+                {
+                    continue;
+                }
+
+                // Reject everything else (complex, generic or framework-internal types).
+                return false;
+            }
+
+            return true;
+        }
     }
 }
 
