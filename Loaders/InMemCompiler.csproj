@@ -337,9 +337,11 @@
     <Compile Include="Obfuscation\Rewriters\ClassObfuscationRewriter.cs" />
     <Compile Include="Obfuscation\Rewriters\CommentRemover.cs" />
     <Compile Include="Obfuscation\Rewriters\InterpolatedStringObfuscator.cs" />
+    <Compile Include="Obfuscation\Rewriters\MethodCollectionRewriter.cs" />
     <Compile Include="Obfuscation\Rewriters\MethodOverloadRewriter.cs" />
     <Compile Include="Obfuscation\Rewriters\StringLiteralObfuscator.cs" />
     <Compile Include="Obfuscation\Services\ClassRenamer.cs" />
+    <Compile Include="Obfuscation\Services\MethodRenamer.cs" />
     <Compile Include="Obfuscation\Services\SimpleConstructorRenameService.cs" />
     <Compile Include="Obfuscation\Services\StringLiteralObfuscationService.cs" />
     <Compile Include="Obfuscation\Utilities\ObfuscatedNameGenerator.cs" />

@@ -81,6 +81,10 @@ internal static class InMemCompiler
         //    renaming may have missed in edge cases.
         SimpleConstructorRenameService.RenameConstructors(classMap, projectPaths.CsFiles);
 
+        // 7.1) Collect methods for all classes and obfuscate method names semantically via Roslyn.
+        var methodMap = MethodRenamer.CollectMethodMap(projectPaths.CsFiles);
+        MethodRenamer.RenameMethods(methodMap, projectPaths.CsFiles);
+
         // 8) Compile the obfuscated project and execute the resulting assembly
         //    in-memory.
         Compile(projectPaths.CsFiles, projectPaths.References);

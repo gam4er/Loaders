@@ -96,13 +96,24 @@ namespace Loaders.Obfuscation.Services
 
         private static Project CreateProject(AdhocWorkspace workspace, IEnumerable<string> filePaths)
         {
+            // Add a richer set of framework references so Roslyn can resolve symbols across documents
+            var references = new List<MetadataReference>
+            {
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(Uri).Assembly.Location), // System
+                MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location), // System.Core
+                MetadataReference.CreateFromFile(typeof(System.Xml.Linq.XDocument).Assembly.Location), // System.Xml.Linq
+                MetadataReference.CreateFromFile(typeof(System.Configuration.ConfigurationElementCollection).Assembly.Location), // System.Configuration
+                MetadataReference.CreateFromFile(typeof(Microsoft.Win32.RegistryHive).Assembly.Location), // Microsoft.Win32.Registry
+            };
+
             var projectInfo = ProjectInfo.Create(
                 ProjectId.CreateNewId(),
                 VersionStamp.Default,
                 name: "LoadersObfuscation",
                 assemblyName: "LoadersObfuscation",
                 language: LanguageNames.CSharp,
-                metadataReferences: new[] { MetadataReference.CreateFromFile(typeof(object).Assembly.Location) });
+                metadataReferences: references);
 
             var project = workspace.AddProject(projectInfo);
 
