@@ -42,7 +42,7 @@ namespace Loaders.Obfuscation.Services
             return collector.GetEntries();
         }
 
-        // New renaming pipeline modeled after ClassRenamer: iterate collected entries and rename symbols via Roslyn across the solution.
+        // Refactored: rename strictly by pre-filtered entries, keeping logic minimal.
         public static void RenameMethods(IReadOnlyDictionary<string, string> methodMap, IReadOnlyCollection<string> filePaths)
         {
             if (methodMap == null) throw new ArgumentNullException(nameof(methodMap));
@@ -52,7 +52,6 @@ namespace Loaders.Obfuscation.Services
             var project = CreateProject(workspace, filePaths);
             var solution = project.Solution;
 
-            // Build a snapshot of entries to drive precise renames (class, name, parameter count, new name)
             var entries = CollectMethodEntries(filePaths);
 
             foreach (var entry in entries)
@@ -72,7 +71,6 @@ namespace Loaders.Obfuscation.Services
                         continue;
                     }
 
-                    // Find candidate class declarations matching either original or already obfuscated name
                     var classDeclarations = root.DescendantNodesAndSelf()
                         .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax>()
                         .Where(c => c.Identifier.Text == entry.ClassName)
@@ -80,19 +78,6 @@ namespace Loaders.Obfuscation.Services
 
                     foreach (var classDeclaration in classDeclarations)
                     {
-                        var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
-                        if (classSymbol == null)
-                        {
-                            continue;
-                        }
-
-                        // If the class derives from a base type other than object, skip to avoid breaking inheritance contracts
-                        if (classSymbol.BaseType != null && classSymbol.BaseType.SpecialType != SpecialType.System_Object)
-                        {
-                            continue;
-                        }
-
-                        // Scan methods in the class to find the exact symbol by name and parameter count
                         var methods = classDeclaration.Members
                             .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
                             .Where(m => m.Identifier.Text == entry.MethodName)
@@ -106,30 +91,13 @@ namespace Loaders.Obfuscation.Services
                                 continue;
                             }
 
-                            // Validate parameter count match for overload disambiguation
+                            // Disambiguate overloads by parameter count gathered during collection
                             if (symbol.Parameters.Length != entry.ParameterCount)
                             {
                                 continue;
                             }
 
-                            // Skip unsafe renames consistent with previous filters
-                            if (symbol.IsOverride ||
-                                symbol.ExplicitInterfaceImplementations.Length > 0 ||
-                                symbol.MethodKind != MethodKind.Ordinary ||
-                                symbol.IsExtern ||
-                                symbol.IsImplicitlyDeclared ||
-                                symbol.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.Runtime.InteropServices.DllImportAttribute") ||
-                                (symbol.Name == nameof(object.ToString)) ||
-                                (symbol.Name == nameof(object.GetHashCode)) ||
-                                (symbol.Name == nameof(object.Equals) && symbol.Parameters.Length == 1) ||
-                                (symbol.Name == nameof(IDisposable.Dispose) && symbol.Parameters.Length == 0 && classSymbol.AllInterfaces.Any(i => i.ToDisplayString() == typeof(IDisposable).FullName)) ||
-                                HasSerializationCallbackAttribute(symbol) ||
-                                string.Equals(symbol.Name, "Main", StringComparison.Ordinal))
-                            {
-                                continue;
-                            }
-
-                            // Acquire target new name either from entry or methodMap fallback
+                            // Determine new name from entry or map
                             var key = $"{entry.ClassName}.{entry.MethodName}";
                             var newName = entry.NewName;
                             if (string.IsNullOrEmpty(newName) && methodMap.TryGetValue(key, out var mapName))
@@ -167,18 +135,6 @@ namespace Loaders.Obfuscation.Services
                     File.WriteAllText(path, newText.ToString());
                 }
             }
-        }
-
-        private static bool HasSerializationCallbackAttribute(ISymbol symbol)
-        {
-            var serializationCallbackAttributes = new[]
-            {
-                "System.Runtime.Serialization.OnSerializingAttribute",
-                "System.Runtime.Serialization.OnSerializedAttribute",
-                "System.Runtime.Serialization.OnDeserializingAttribute",
-                "System.Runtime.Serialization.OnDeserializedAttribute"
-            };
-            return symbol.GetAttributes().Any(a => serializationCallbackAttributes.Contains(a.AttributeClass?.ToDisplayString()));
         }
 
         private static Project CreateProject(AdhocWorkspace workspace, IEnumerable<string> filePaths)

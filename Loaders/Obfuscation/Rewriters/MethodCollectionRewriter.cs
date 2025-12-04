@@ -71,7 +71,7 @@ namespace Loaders.Obfuscation.Rewriters
             }
 
             // Skip entry point Main method (any signature)
-            if (name.Contains("Main") || name.Contains("WriteLine"))
+            if (name.Contains("Main") )
             {
                 return true;
             }
