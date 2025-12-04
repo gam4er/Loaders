@@ -39,8 +39,12 @@ namespace Loaders.Obfuscation.Services
         /// </summary>
         public static SyntaxTree ObfuscateStrings(SyntaxTree syntaxTree)
         {
+            // First, rewrite interpolated strings into concatenations with obfuscated literal segments.
+            var step1Root = new InterpolatedStringObfuscator().Visit(syntaxTree.GetRoot());
+
+            // Then, run the literal obfuscator to transform remaining plain string literals.
             var rewriter = new StringLiteralObfuscator();
-            var newRoot = rewriter.Visit(syntaxTree.GetRoot()).NormalizeWhitespace();
+            var newRoot = rewriter.Visit(step1Root).NormalizeWhitespace();
             return syntaxTree.WithRootAndOptions(newRoot, syntaxTree.Options);
         }
 

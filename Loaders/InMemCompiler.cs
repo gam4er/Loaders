@@ -20,8 +20,8 @@ using Microsoft.CodeAnalysis.Formatting;
 /// </summary>
 internal static class InMemCompiler
 {
-    private const string SourceFolder = "d:\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
-    private const string OutputFolder = "d:\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
+    private const string SourceFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
+    private const string OutputFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
     private const string ProjectFileName = "Seatbelt.csproj";
 
     // Types that must not be renamed to avoid breaking interop/framework behavior.
@@ -80,6 +80,10 @@ internal static class InMemCompiler
         //    constructor calls like "new ClassName(...)" that semantic
         //    renaming may have missed in edge cases.
         SimpleConstructorRenameService.RenameConstructors(classMap, projectPaths.CsFiles);
+
+        // 7.1) Collect methods for all classes and obfuscate method names semantically via Roslyn.
+        var methodMap = MethodRenamer.CollectMethodMap(projectPaths.CsFiles);
+        MethodRenamer.RenameMethods(methodMap, projectPaths.CsFiles);
 
         // 8) Compile the obfuscated project and execute the resulting assembly
         //    in-memory.
