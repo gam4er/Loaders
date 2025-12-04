@@ -56,7 +56,7 @@ namespace Loaders.Obfuscation.Rewriters
         private static bool ShouldSkip(MethodDeclarationSyntax method)
         {
             // Skip overrides, extern, operators and special-name accessors
-            if (method.Modifiers.Any(SyntaxKind.OverrideKeyword) ||
+            if (//method.Modifiers.Any(SyntaxKind.OverrideKeyword) ||
                 method.Modifiers.Any(SyntaxKind.ExternKeyword))
             {
                 return true;
@@ -91,11 +91,13 @@ namespace Loaders.Obfuscation.Rewriters
             }
 
             // Skip P/Invoke methods marked with [DllImport]
+            /*
             if (method.AttributeLists.SelectMany(a => a.Attributes)
                     .Any(a => a.Name.ToString().EndsWith("DllImport") || a.Name.ToString().EndsWith("DllImportAttribute")))
             {
                 return true;
             }
+            */
 
             // Skip serialization callbacks
             var serializationAttrNames = new[]
