@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -37,9 +38,18 @@ namespace Loaders
             // Пытаемся найти сборку по неймспейсу в текущем домене
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
-                if (assembly.GetTypes().Any(t => t.Namespace == namespaceName))
+                try
                 {
-                    return new List<Assembly> { assembly };
+                    if (assembly.GetTypes().Any(t => t.Namespace == namespaceName))
+                    {
+                        return new List<Assembly> { assembly };
+                    }
+                }
+                catch (ReflectionTypeLoadException)
+                {
+                }
+                catch (FileLoadException)
+                {
                 }
             }
 

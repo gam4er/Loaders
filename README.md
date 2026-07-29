@@ -3,6 +3,7 @@
 Loaders is a .NET Framework 4.8 obfuscation pipeline: it copies a C# project to a working directory, applies obfuscation steps, then compiles and runs the obfuscated binary.
 
 ## Core process
+
 - **PrepareOutputProject**: copy the source project into an isolated folder.
 - **LoadProject**: parse the csproj to collect C# files and assembly references.
 - **String obfuscation**: remove comments and rewrite string literals.
@@ -13,10 +14,12 @@ Loaders is a .NET Framework 4.8 obfuscation pipeline: it copies a C# project to 
 - **Compile**: build and run the obfuscated assembly in memory.
 
 ## Semantic vs syntactic renaming
+
 - **Semantic**: operates on Roslyn `ISymbol`, updates usages (type refs, parameters, object creations) reliably. Requires accurate `MetadataReference`.
 - **Syntactic**: operates on syntax trees, faster but unaware of symbol binding; can miss or break edge cases.
 
 ## Key components
+
 - **`InMemCompiler`**: orchestrates the pipeline.
 - **`ClassRenamer`**: semantic class renamer via Roslyn.
 - **`MethodRenamer`**: semantic method renamer driven by `MethodRenameEntry`.
@@ -26,6 +29,7 @@ Loaders is a .NET Framework 4.8 obfuscation pipeline: it copies a C# project to 
 - **`Loaders.GAC`**: resolves assembly references from GAC.
 
 ## Best practices
+
 - Run semantic renaming (classes/methods) before syntactic fixes.
 - Provide complete `MetadataReference` to the Roslyn workspace (parsed from csproj + common framework libs).
 - Centralize exclusion rules (override, interface implementations, extern/DllImport, `Dispose`, serialization callbacks, `Main`, `object` methods) in collection.
@@ -33,5 +37,15 @@ Loaders is a .NET Framework 4.8 obfuscation pipeline: it copies a C# project to 
 - Persist changes to disk after successful semantic updates and a clean build.
 
 ## Build & run
-- Set `SourceFolder`, `OutputFolder`, and `ProjectFileName` in `InMemCompiler`.
-- Run the app: it copies, obfuscates, compiles, and executes the binary.
+
+- Restore the legacy `packages.config` project and build it from the Visual Studio Native Tools Command Prompt.
+- Run the app with the required source and output directories:
+
+```text
+Loaders.exe --source C:\path\to\source --output C:\path\to\output
+```
+
+- The source directory must contain exactly one `.csproj` file.
+- Source and output directories must be separate; output is recreated for each run.
+- File-based stages display percentage progress. Roslyn symbol renaming and compilation display a live status.
+- Use `Loaders.exe --help` for the generated command-line help.

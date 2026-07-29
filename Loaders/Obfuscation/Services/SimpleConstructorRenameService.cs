@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -16,7 +17,10 @@ namespace Loaders.Obfuscation.Services
     /// </summary>
     internal static class SimpleConstructorRenameService
     {
-        public static void RenameConstructors(IReadOnlyDictionary<string, string> classMap, IEnumerable<string> filePaths)
+        public static void RenameConstructors(
+            IReadOnlyDictionary<string, string> classMap,
+            IEnumerable<string> filePaths,
+            Action<string> onFileProcessed = null)
         {
             foreach (var filePath in filePaths)
             {
@@ -25,6 +29,7 @@ namespace Loaders.Obfuscation.Services
                 var rewriter = new ConstructorTypeRewriter(classMap);
                 var newRoot = rewriter.Visit(syntaxTree.GetRoot());
                 File.WriteAllText(filePath, newRoot.ToFullString());
+                onFileProcessed?.Invoke(filePath);
             }
         }
 

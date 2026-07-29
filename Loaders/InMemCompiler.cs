@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Xml.Linq;
 using Loaders.Obfuscation.Rewriters;
 using Loaders.Obfuscation.Services;
@@ -10,6 +12,8 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Formatting;
+using Spectre.Console;
+using Spectre.Console.Cli;
 
 /// <summary>
 /// Entry point for the Seatbelt obfuscation pipeline.
@@ -20,10 +24,6 @@ using Microsoft.CodeAnalysis.Formatting;
 /// </summary>
 internal static class InMemCompiler
 {
-    private const string SourceFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_orig\\Seatbelt\\";
-    private const string OutputFolder = "C:\\Users\\gam4er\\Documents\\GitHub\\Seatbelt_obf\\Seatbelt\\";
-    private const string ProjectFileName = "Seatbelt.csproj";
-
     // Types that must not be renamed to avoid breaking interop/framework behavior.
     private static readonly IReadOnlyCollection<string> ExcludedClasses = new HashSet<string>
     {
@@ -52,64 +52,155 @@ internal static class InMemCompiler
         //"FileUtil",
     };
 
-    private static void Main()
+    private static int Main(string[] args)
     {
-        // 1) Copy the original Seatbelt project into an isolated working folder
-        //    so the source tree is never modified in-place.
-        PrepareOutputProject();
+        var app = new CommandApp<ObfuscationCommand>();
+        app.Configure(config =>
+        {
+            config.SetApplicationName("Loaders");
+            config.SetExceptionHandler((exception, resolver) =>
+            {
+                AnsiConsole.WriteException(exception, ExceptionFormats.ShortenPaths);
+                return 1;
+            });
+        });
 
-        // 2) Load the copied csproj and enumerate all C# files and assembly references.
-        var projectPaths = LoadProject(OutputFolder, ProjectFileName);
-
-        // 3) Rewrite string literals and remove comments in the working copy.
-        ObfuscateStringLiterals(projectPaths.CsFiles);
-
-        // 4) Inject harmless method overloads to increase control-flow noise.
-        AddMethodOverloads(projectPaths.CsFiles);
-
-        // 5) Collect all class declarations (except excluded infrastructure types)
-        //    and build a deterministic obfuscated name map.
-        var classMap = CollectClassNameMap(projectPaths.CsFiles);
-
-        // 6) First, perform semantic renames using Roslyn symbol APIs so all type
-        //    references (base types, fields, parameters, object creations, etc.)
-        //    are updated consistently.
-        ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
-
-        // 7) Optionally, run a narrow syntactic pass to fix up remaining
-        //    constructor calls like "new ClassName(...)" that semantic
-        //    renaming may have missed in edge cases.
-        SimpleConstructorRenameService.RenameConstructors(classMap, projectPaths.CsFiles);
-
-        // 7.1) Collect methods for all classes and obfuscate method names semantically via Roslyn.
-        var methodMap = MethodRenamer.CollectMethodMap(projectPaths.CsFiles);
-        MethodRenamer.RenameMethods(methodMap, projectPaths.CsFiles);
-
-        // 8) Compile the obfuscated project and execute the resulting assembly
-        //    in-memory.
-        Compile(projectPaths.CsFiles, projectPaths.References);
+        return app.Run(args);
     }
 
-    // Recursively copy the source project into the output folder so we never touch the original sources.
-    private static void PrepareOutputProject()
+    internal static int Run(string sourceFolder, string outputFolder)
     {
-        if (Directory.Exists(OutputFolder))
+        var normalizedSourceFolder = NormalizeDirectoryPath(sourceFolder);
+        var normalizedOutputFolder = NormalizeDirectoryPath(outputFolder);
+        ValidatePaths(normalizedSourceFolder, normalizedOutputFolder);
+        var projectFileName = FindProjectFileName(normalizedSourceFolder);
+
+        PrepareOutputProject(normalizedSourceFolder, normalizedOutputFolder);
+
+        var projectPaths = LoadProject(normalizedOutputFolder, projectFileName);
+
+        ObfuscateStringLiterals(projectPaths.CsFiles);
+        AddMethodOverloads(projectPaths.CsFiles);
+
+        var classMap = CollectClassNameMap(projectPaths.CsFiles);
+
+        RunStatus($"Renaming {classMap.Count} classes", context =>
         {
-            Directory.Delete(OutputFolder, recursive: true);
+            context.Status("[yellow]Resolving class symbols[/]");
+            ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
+        });
+
+        RunFileProgressWithCallback(
+            "Fixing constructors",
+            projectPaths.CsFiles,
+            reportProgress => SimpleConstructorRenameService.RenameConstructors(
+                classMap,
+                projectPaths.CsFiles,
+                reportProgress));
+
+        IReadOnlyDictionary<string, string> methodMap = null;
+        RunStatus("Preparing method renaming", context =>
+        {
+            context.Status("[yellow]Collecting method symbols[/]");
+            methodMap = MethodRenamer.CollectMethodMap(projectPaths.CsFiles);
+            context.Status($"[yellow]Renaming {methodMap.Count} methods[/]");
+            MethodRenamer.RenameMethods(methodMap, projectPaths.CsFiles);
+        });
+
+        var compilationSucceeded = false;
+        RunStatus("Compiling obfuscated project", context =>
+        {
+            context.Status("[yellow]Emitting executable assembly[/]");
+            compilationSucceeded = Compile(projectPaths.CsFiles, projectPaths.References, normalizedOutputFolder);
+        });
+
+        if (!compilationSucceeded)
+        {
+            return 1;
         }
 
-        Directory.CreateDirectory(OutputFolder);
+        AnsiConsole.MarkupLine("[green]Obfuscation completed.[/]");
+        AnsiConsole.WriteLine($"Output: {Path.Combine(normalizedOutputFolder, "Output.exe")}");
+        return 0;
+    }
 
-        foreach (var directory in Directory.GetDirectories(SourceFolder, "*", SearchOption.AllDirectories))
+    private static string NormalizeDirectoryPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
         {
-            var relative = GetRelativePath(SourceFolder, directory);
-            Directory.CreateDirectory(Path.Combine(OutputFolder, relative));
+            throw new ArgumentException("A directory path is required.", nameof(path));
         }
 
-        foreach (var file in Directory.GetFiles(SourceFolder, "*", SearchOption.AllDirectories))
+        var fullPath = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(fullPath);
+        if (!string.Equals(fullPath, root, StringComparison.OrdinalIgnoreCase))
         {
-            var relative = GetRelativePath(SourceFolder, file);
-            var destination = Path.Combine(OutputFolder, relative);
+            fullPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        return fullPath;
+    }
+
+    private static void ValidatePaths(string sourceFolder, string outputFolder)
+    {
+        if (!Directory.Exists(sourceFolder))
+        {
+            throw new DirectoryNotFoundException($"Source directory was not found: {sourceFolder}");
+        }
+
+        if (IsSameOrDescendant(sourceFolder, outputFolder) || IsSameOrDescendant(outputFolder, sourceFolder))
+        {
+            throw new InvalidOperationException("Source and output directories must be separate and cannot be nested.");
+        }
+    }
+
+    private static bool IsSameOrDescendant(string parent, string candidate)
+    {
+        if (string.Equals(parent, candidate, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var parentPrefix = parent.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ||
+                           parent.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+            ? parent
+            : parent + Path.DirectorySeparatorChar;
+
+        return candidate.StartsWith(parentPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FindProjectFileName(string sourceFolder)
+    {
+        var projectFiles = Directory.GetFiles(sourceFolder, "*.csproj", SearchOption.TopDirectoryOnly);
+        if (projectFiles.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected exactly one .csproj in the source directory, found {projectFiles.Length}.");
+        }
+
+        return Path.GetFileName(projectFiles[0]);
+    }
+
+    private static void PrepareOutputProject(string sourceFolder, string outputFolder)
+    {
+        if (Directory.Exists(outputFolder))
+        {
+            Directory.Delete(outputFolder, recursive: true);
+        }
+
+        Directory.CreateDirectory(outputFolder);
+
+        foreach (var directory in Directory.GetDirectories(sourceFolder, "*", SearchOption.AllDirectories))
+        {
+            var relative = GetRelativePath(sourceFolder, directory);
+            Directory.CreateDirectory(Path.Combine(outputFolder, relative));
+        }
+
+        var files = Directory.GetFiles(sourceFolder, "*", SearchOption.AllDirectories);
+        RunFileProgress("Copying project", files, file =>
+        {
+            var relative = GetRelativePath(sourceFolder, file);
+            var destination = Path.Combine(outputFolder, relative);
             var destinationDir = Path.GetDirectoryName(destination);
             if (!string.IsNullOrEmpty(destinationDir))
             {
@@ -117,7 +208,71 @@ internal static class InMemCompiler
             }
 
             File.Copy(file, destination, overwrite: true);
+        });
+    }
+
+    private static void RunStatus(string description, Action<StatusContext> action)
+    {
+        AnsiConsole.Status()
+            .AutoRefresh(true)
+            .Start(description, action);
+    }
+
+    private static void RunFileProgress(string description, IEnumerable<string> filePaths, Action<string> processFile)
+    {
+        var files = filePaths.ToList();
+        if (files.Count == 0)
+        {
+            return;
         }
+
+        AnsiConsole.Progress()
+            .AutoClear(false)
+            .Columns(new ProgressColumn[]
+            {
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new PercentageColumn(),
+                new RemainingTimeColumn(),
+                new SpinnerColumn(),
+            })
+            .Start(context =>
+            {
+                var task = context.AddTask(description, autoStart: true, maxValue: files.Count);
+                foreach (var file in files)
+                {
+                    processFile(file);
+                    task.Increment(1);
+                }
+            });
+    }
+
+    private static void RunFileProgressWithCallback(
+        string description,
+        IEnumerable<string> filePaths,
+        Action<Action<string>> processFiles)
+    {
+        var files = filePaths.ToList();
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        AnsiConsole.Progress()
+            .AutoClear(false)
+            .Columns(new ProgressColumn[]
+            {
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new PercentageColumn(),
+                new RemainingTimeColumn(),
+                new SpinnerColumn(),
+            })
+            .Start(context =>
+            {
+                var task = context.AddTask(description, autoStart: true, maxValue: files.Count);
+                processFiles(_ => task.Increment(1));
+            });
     }
 
     // Simple relative path helper compatible with .NET Framework 4.8.
@@ -171,11 +326,11 @@ internal static class InMemCompiler
 
     private static void ObfuscateStringLiterals(IEnumerable<string> csFiles)
     {
-        foreach (var csFile in csFiles)
+        RunFileProgress("Obfuscating strings", csFiles, csFile =>
         {
             if (csFile.IndexOf("AssemblyInfo.cs", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                continue;
+                return;
             }
 
             var sourceCode = File.ReadAllText(csFile);
@@ -185,12 +340,12 @@ internal static class InMemCompiler
             syntaxTree = StringLiteralObfuscationService.ObfuscateStrings(syntaxTree);
 
             File.WriteAllText(csFile, syntaxTree.GetRoot().ToFullString());
-        }
+        });
     }
 
     private static void AddMethodOverloads(IEnumerable<string> csFiles)
     {
-        foreach (var csFile in csFiles)
+        RunFileProgress("Adding method overloads", csFiles, csFile =>
         {
             var sourceCode = File.ReadAllText(csFile);
             var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
@@ -198,19 +353,19 @@ internal static class InMemCompiler
             var newRoot = rewriter.Visit(syntaxTree.GetRoot());
             var formattedRoot = Formatter.Format(newRoot, new AdhocWorkspace());
             File.WriteAllText(csFile, formattedRoot.ToFullString());
-        }
+        });
     }
 
     private static Dictionary<string, string> CollectClassNameMap(IEnumerable<string> csFiles)
     {
         var classCollector = new ClassCollectionRewriter();
 
-        foreach (var csFile in csFiles)
+        RunFileProgress("Collecting classes", csFiles, csFile =>
         {
             var sourceCode = File.ReadAllText(csFile);
             var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
             classCollector.Visit(syntaxTree.GetRoot());
-        }
+        });
 
         var map = classCollector.GetClassMap()
             .Where(pair => !ExcludedClasses.Contains(pair.Key))
@@ -265,7 +420,10 @@ internal static class InMemCompiler
     private static readonly string CompilationErrorsLogPath =
         Path.GetFullPath(Path.Combine(".", "compilation-errors.log"));
 
-    private static void Compile(IEnumerable<string> csFiles, IReadOnlyList<string> references)
+    private static bool Compile(
+        IEnumerable<string> csFiles,
+        IReadOnlyList<string> references,
+        string outputFolder)
     {
         var metadataReferences = new List<MetadataReference>();
 
@@ -278,7 +436,7 @@ internal static class InMemCompiler
             }
             else
             {
-                Console.WriteLine($"Assembly for namespace '{reference}' not found.");
+                AnsiConsole.WriteLine($"Assembly for namespace '{reference}' not found.");
             }
         }
 
@@ -296,15 +454,17 @@ internal static class InMemCompiler
         // Ensure common framework assemblies used by injected noise code are referenced explicitly.
         var systemConfigurationAssembly = typeof(System.Configuration.ConfigurationElementCollection).Assembly.Location;
         metadataReferences.Add(MetadataReference.CreateFromFile(systemConfigurationAssembly));
+        var certificatesAssembly = typeof(System.Security.Cryptography.X509Certificates.X509Certificate2).Assembly.Location;
+        metadataReferences.Add(MetadataReference.CreateFromFile(certificatesAssembly));
 
         var compilation = CSharpCompilation.Create(Path.GetRandomFileName(), options: options);
         var syntaxTrees = csFiles.ToDictionary(file => file, file => CSharpSyntaxTree.ParseText(File.ReadAllText(file)));
         compilation = compilation.AddSyntaxTrees(syntaxTrees.Values);
         compilation = compilation.AddReferences(metadataReferences);
 
-        var outputPath = Path.Combine(OutputFolder, "Output.exe");
+        var outputPath = Path.Combine(outputFolder, "Output.exe");
 
-        Directory.CreateDirectory(OutputFolder);
+        Directory.CreateDirectory(outputFolder);
 
         using var ms = new MemoryStream();
         EmitResult result = compilation.Emit(ms);
@@ -312,7 +472,7 @@ internal static class InMemCompiler
         if (!result.Success)
         {
             IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error);
-            Console.WriteLine($"Compilation failed occurs {failures.Count()} errors");
+            AnsiConsole.WriteLine($"Compilation failed with {failures.Count()} errors.");
 
             var compilationErrorsDirectory = Path.GetDirectoryName(CompilationErrorsLogPath);
             if (!string.IsNullOrEmpty(compilationErrorsDirectory))
@@ -323,13 +483,33 @@ internal static class InMemCompiler
             using var logWriter = new StreamWriter(CompilationErrorsLogPath, append: false);
             foreach (Diagnostic diagnostic in failures)
             {
-                Console.Error.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);
+                AnsiConsole.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);
                 logWriter.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);
             }
-            return;
+            return false;
         }
 
         File.WriteAllBytes(outputPath, ms.ToArray());
         Assembly.Load(ms.ToArray()).EntryPoint?.Invoke(null, new object[] { new[] { "--help" } });
+        return true;
+    }
+}
+
+public sealed class ObfuscationSettings : CommandSettings
+{
+    [CommandOption("--source <PATH>", isRequired: true)]
+    [Description("Source directory containing the project to obfuscate.")]
+    public string Source { get; set; }
+
+    [CommandOption("--output <PATH>", isRequired: true)]
+    [Description("Directory where the copied and obfuscated project is written.")]
+    public string Output { get; set; }
+}
+
+public sealed class ObfuscationCommand : Command<ObfuscationSettings>
+{
+    protected override int Execute(CommandContext context, ObfuscationSettings settings, CancellationToken cancellationToken)
+    {
+        return InMemCompiler.Run(settings.Source, settings.Output);
     }
 }
