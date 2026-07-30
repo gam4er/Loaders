@@ -59,6 +59,7 @@ internal static class InMemCompiler
         app.Configure(config =>
         {
             config.SetApplicationName("Loaders");
+            config.CaseSensitivity(CaseSensitivity.None);
             config.SetExceptionHandler((exception, resolver) =>
             {
                 AnsiConsole.WriteException(exception, ExceptionFormats.ShortenPaths);
