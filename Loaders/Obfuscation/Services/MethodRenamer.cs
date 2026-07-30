@@ -7,6 +7,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Rename;
 using Microsoft.CodeAnalysis.Text;
+using Loaders.Obfuscation.Utilities;
 
 namespace Loaders.Obfuscation.Services
 {
@@ -15,13 +16,15 @@ namespace Loaders.Obfuscation.Services
         public static IReadOnlyDictionary<string, string> CollectMethodMap(
             IReadOnlyCollection<string> filePaths,
             bool includeDerivedPrivateStaticMethods = false,
-            bool skipOutAssignmentHelpers = false)
+            bool skipOutAssignmentHelpers = false,
+            IObfuscatedNameProvider nameProvider = null)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
 
             var collector = new Loaders.Obfuscation.Rewriters.MethodCollectionRewriter(
                 includeDerivedPrivateStaticMethods,
-                skipOutAssignmentHelpers);
+                skipOutAssignmentHelpers,
+                nameProvider);
             foreach (var file in filePaths)
             {
                 var code = File.ReadAllText(file);
@@ -35,13 +38,15 @@ namespace Loaders.Obfuscation.Services
         public static IReadOnlyList<Loaders.Obfuscation.Rewriters.MethodRenameEntry> CollectMethodEntries(
             IReadOnlyCollection<string> filePaths,
             bool includeDerivedPrivateStaticMethods = false,
-            bool skipOutAssignmentHelpers = false)
+            bool skipOutAssignmentHelpers = false,
+            IObfuscatedNameProvider nameProvider = null)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
 
             var collector = new Loaders.Obfuscation.Rewriters.MethodCollectionRewriter(
                 includeDerivedPrivateStaticMethods,
-                skipOutAssignmentHelpers);
+                skipOutAssignmentHelpers,
+                nameProvider);
             foreach (var file in filePaths)
             {
                 var code = File.ReadAllText(file);
@@ -62,14 +67,24 @@ namespace Loaders.Obfuscation.Services
             if (methodMap == null) throw new ArgumentNullException(nameof(methodMap));
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
 
-            using var workspace = new AdhocWorkspace();
-            var project = CreateProject(workspace, filePaths);
-            var solution = project.Solution;
-
             var entries = CollectMethodEntries(
                 filePaths,
                 includeDerivedPrivateStaticMethods,
                 skipOutAssignmentHelpers);
+
+            RenameMethods(entries, filePaths);
+        }
+
+        public static void RenameMethods(
+            IReadOnlyList<Loaders.Obfuscation.Rewriters.MethodRenameEntry> entries,
+            IReadOnlyCollection<string> filePaths)
+        {
+            if (entries == null) throw new ArgumentNullException(nameof(entries));
+            if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
+
+            using var workspace = new AdhocWorkspace();
+            var project = CreateProject(workspace, filePaths);
+            var solution = project.Solution;
 
             foreach (var entry in entries)
             {
@@ -115,12 +130,7 @@ namespace Loaders.Obfuscation.Services
                             }
 
                             // Determine new name from entry or map
-                            var key = $"{entry.ClassName}.{entry.MethodName}";
                             var newName = entry.NewName;
-                            if (string.IsNullOrEmpty(newName) && methodMap.TryGetValue(key, out var mapName))
-                            {
-                                newName = mapName;
-                            }
                             if (string.IsNullOrEmpty(newName) || symbol.Name == newName)
                             {
                                 continue;

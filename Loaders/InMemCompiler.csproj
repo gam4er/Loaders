@@ -364,12 +364,14 @@
     <Compile Include="Obfuscation\Rewriters\OutAssignmentMethodRewriter.cs" />
     <Compile Include="Obfuscation\Rewriters\StringLiteralObfuscator.cs" />
     <Compile Include="Obfuscation\Services\ClassRenamer.cs" />
+    <Compile Include="Obfuscation\Services\ExtendedSymbolRenameService.cs" />
     <Compile Include="Obfuscation\Services\MethodRenamer.cs" />
     <Compile Include="Obfuscation\Services\OutAssignmentMethodService.cs" />
     <Compile Include="Obfuscation\Services\ProjectFileInfo.cs" />
     <Compile Include="Obfuscation\Services\ProjectReferenceResolver.cs" />
     <Compile Include="Obfuscation\Services\SimpleConstructorRenameService.cs" />
     <Compile Include="Obfuscation\Services\StringLiteralObfuscationService.cs" />
+    <Compile Include="Obfuscation\Utilities\IObfuscatedNameProvider.cs" />
     <Compile Include="Obfuscation\Utilities\ObfuscatedNameGenerator.cs" />
     <Compile Include="GAC.cs" />
     <Compile Include="Obfuscation\Utilities\StringObfuscationUtil.cs" />
@@ -379,6 +381,11 @@
   <ItemGroup>
     <None Include="App.config" />
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="2600-0.txt">
+      <LogicalName>Loaders.Resources.WarAndPeace.txt</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <Analyzer Include="..\packages\Microsoft.CodeAnalysis.Analyzers.3.11.0\analyzers\dotnet\cs\Microsoft.CodeAnalysis.Analyzers.dll" />

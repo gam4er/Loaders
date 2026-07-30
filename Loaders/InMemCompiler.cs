@@ -8,6 +8,7 @@ using System.Threading;
 using System.Xml.Linq;
 using Loaders.Obfuscation.Rewriters;
 using Loaders.Obfuscation.Services;
+using Loaders.Obfuscation.Utilities;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
@@ -68,12 +69,18 @@ internal static class InMemCompiler
         return app.Run(args);
     }
 
-    internal static int Run(string sourceFolder, string outputFolder, bool outAssignmentMethods)
+    internal static int Run(
+        string sourceFolder,
+        string outputFolder,
+        bool outAssignmentMethods,
+        bool renameExtendedSymbols,
+        bool beLeo)
     {
         var normalizedSourceFolder = NormalizeDirectoryPath(sourceFolder);
         var normalizedOutputFolder = NormalizeDirectoryPath(outputFolder);
         ValidatePaths(normalizedSourceFolder, normalizedOutputFolder);
         var projectFileName = FindProjectFileName(normalizedSourceFolder);
+        var nameProvider = ObfuscatedNameGenerator.CreateProvider(beLeo);
 
         PrepareOutputProject(normalizedSourceFolder, normalizedOutputFolder);
 
@@ -87,16 +94,34 @@ internal static class InMemCompiler
             RunFileProgressWithCallback(
                 "Rewriting assignments as out-methods",
                 projectPaths.CsFiles,
-                reportProgress => OutAssignmentMethodService.Rewrite(projectPaths, reportProgress));
+                reportProgress => OutAssignmentMethodService.Rewrite(projectPaths, reportProgress, nameProvider));
         }
 
-        var classMap = CollectClassNameMap(projectPaths.CsFiles);
-
-        RunStatus($"Renaming {classMap.Count} classes", context =>
+        IReadOnlyDictionary<string, string> classMap;
+        if (renameExtendedSymbols)
         {
-            context.Status("[yellow]Resolving class symbols[/]");
-            ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
-        });
+            classMap = new Dictionary<string, string>();
+            RunStatus("Renaming namespaces and types", context =>
+            {
+                context.Status("[yellow]Resolving namespace and type symbols[/]");
+                classMap = ExtendedSymbolRenameService.RenameNamespacesAndTypes(
+                    projectPaths,
+                    nameProvider,
+                    ExcludedClasses);
+                WriteClassMap(classMap, normalizedOutputFolder);
+            });
+        }
+        else
+        {
+            classMap = CollectClassNameMap(projectPaths.CsFiles, nameProvider, normalizedOutputFolder);
+
+            RunStatus($"Renaming {classMap.Count} classes", context =>
+            {
+                context.Status("[yellow]Resolving class symbols[/]");
+                ClassRenamer.RenameClasses(classMap, projectPaths.CsFiles);
+            });
+        }
+
 
         RunFileProgressWithCallback(
             "Fixing constructors",
@@ -106,19 +131,33 @@ internal static class InMemCompiler
                 projectPaths.CsFiles,
                 reportProgress));
 
-        IReadOnlyDictionary<string, string> methodMap = null;
-        RunStatus("Preparing method renaming", context =>
+        if (renameExtendedSymbols)
         {
-            context.Status("[yellow]Collecting method symbols[/]");
-            methodMap = MethodRenamer.CollectMethodMap(
-                projectPaths.CsFiles,
-                skipOutAssignmentHelpers: outAssignmentMethods);
-            context.Status($"[yellow]Renaming {methodMap.Count} methods[/]");
-            MethodRenamer.RenameMethods(
-                methodMap,
-                projectPaths.CsFiles,
-                skipOutAssignmentHelpers: outAssignmentMethods);
-        });
+            RunStatus("Renaming members, parameters and locals", context =>
+            {
+                context.Status("[yellow]Resolving extended symbols[/]");
+                ExtendedSymbolRenameService.RenameMembersAndLocals(
+                    projectPaths,
+                    nameProvider,
+                    outAssignmentMethods);
+            });
+        }
+        else
+        {
+            IReadOnlyList<MethodRenameEntry> methodEntries = null;
+            RunStatus("Preparing method renaming", context =>
+            {
+                context.Status("[yellow]Collecting method symbols[/]");
+                methodEntries = MethodRenamer.CollectMethodEntries(
+                    projectPaths.CsFiles,
+                    skipOutAssignmentHelpers: outAssignmentMethods,
+                    nameProvider: nameProvider);
+                context.Status($"[yellow]Renaming {methodEntries.Count} methods[/]");
+                MethodRenamer.RenameMethods(
+                    methodEntries,
+                    projectPaths.CsFiles);
+            });
+        }
 
         var outputPath = string.Empty;
         var compilationSucceeded = false;
@@ -389,9 +428,12 @@ internal static class InMemCompiler
         });
     }
 
-    private static Dictionary<string, string> CollectClassNameMap(IEnumerable<string> csFiles)
+    private static Dictionary<string, string> CollectClassNameMap(
+        IEnumerable<string> csFiles,
+        IObfuscatedNameProvider nameProvider,
+        string outputFolder)
     {
-        var classCollector = new ClassCollectionRewriter();
+        var classCollector = new ClassCollectionRewriter(nameProvider);
 
         RunFileProgress("Collecting classes", csFiles, csFile =>
         {
@@ -405,10 +447,15 @@ internal static class InMemCompiler
             .OrderBy(pair => pair.Key)
             .ToDictionary(pair => pair.Key, pair => pair.Value);
 
-        // Persist mapping to CSV to aid debugging / analysis of obfuscation.
+        WriteClassMap(map, outputFolder);
+        return map;
+    }
+
+    private static void WriteClassMap(IReadOnlyDictionary<string, string> map, string outputFolder)
+    {
         try
         {
-            var csvPath = Path.GetFullPath(Path.Combine(".", "class-map.csv"));
+            var csvPath = Path.GetFullPath(Path.Combine(outputFolder, "class-map.csv"));
             var csvDir = Path.GetDirectoryName(csvPath);
             if (!string.IsNullOrEmpty(csvDir))
             {
@@ -426,8 +473,6 @@ internal static class InMemCompiler
         {
             // CSV generation is best-effort only; ignore any IO failures.
         }
-
-        return map;
     }
 
     /// <summary>
@@ -517,12 +562,25 @@ public sealed class ObfuscationSettings : CommandSettings
     [CommandOption("--out-assignment-methods")]
     [Description("Rewrite safe local assignments through generated helper methods with out parameters.")]
     public bool OutAssignmentMethods { get; set; }
+
+    [CommandOption("--rename-extended-symbols")]
+    [Description("Rename namespaces, types, members, parameters and locals using conservative Roslyn semantic rules.")]
+    public bool RenameExtendedSymbols { get; set; }
+
+    [CommandOption("--BeLeo|--be-leo")]
+    [Description("Generate obfuscated identifiers from the embedded War and Peace text.")]
+    public bool BeLeo { get; set; }
 }
 
 public sealed class ObfuscationCommand : Command<ObfuscationSettings>
 {
     protected override int Execute(CommandContext context, ObfuscationSettings settings, CancellationToken cancellationToken)
     {
-        return InMemCompiler.Run(settings.Source, settings.Output, settings.OutAssignmentMethods);
+        return InMemCompiler.Run(
+            settings.Source,
+            settings.Output,
+            settings.OutAssignmentMethods,
+            settings.RenameExtendedSymbols,
+            settings.BeLeo);
     }
 }

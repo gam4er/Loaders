@@ -17,11 +17,17 @@ namespace Loaders.Obfuscation.Rewriters
     public sealed class ClassCollectionRewriter : CSharpSyntaxRewriter
     {
         private readonly Dictionary<string, string> _classNameMap = new();
+        private readonly IObfuscatedNameProvider _nameProvider;
+
+        public ClassCollectionRewriter(IObfuscatedNameProvider nameProvider = null)
+        {
+            _nameProvider = nameProvider ?? ObfuscatedNameGenerator.CreateProvider(useBeLeo: false);
+        }
 
         public override SyntaxNode VisitClassDeclaration(ClassDeclarationSyntax node)
         {
             string originalName = node.Identifier.Text;
-            string obfuscatedName = ObfuscatedNameGenerator.Generate(originalName);
+            string obfuscatedName = _nameProvider.Generate(originalName);
             _classNameMap[originalName] = obfuscatedName;
             return base.VisitClassDeclaration(node);
         }

@@ -21,13 +21,16 @@ namespace Loaders.Obfuscation.Rewriters
         private readonly List<MethodRenameEntry> _entries = new();
         private readonly bool _includeDerivedPrivateStaticMethods;
         private readonly bool _skipOutAssignmentHelpers;
+        private readonly IObfuscatedNameProvider _nameProvider;
 
         public MethodCollectionRewriter(
             bool includeDerivedPrivateStaticMethods = false,
-            bool skipOutAssignmentHelpers = false)
+            bool skipOutAssignmentHelpers = false,
+            IObfuscatedNameProvider nameProvider = null)
         {
             _includeDerivedPrivateStaticMethods = includeDerivedPrivateStaticMethods;
             _skipOutAssignmentHelpers = skipOutAssignmentHelpers;
+            _nameProvider = nameProvider ?? ObfuscatedNameGenerator.CreateProvider(useBeLeo: false);
         }
 
         public override SyntaxNode VisitClassDeclaration(ClassDeclarationSyntax node)
@@ -60,7 +63,7 @@ namespace Loaders.Obfuscation.Rewriters
                 }
 
                 var originalName = method.Identifier.Text;
-                var obfuscatedName = ObfuscatedNameGenerator.Generate(originalName);
+                var obfuscatedName = _nameProvider.Generate(originalName);
 
                 // Key by class-qualified name to avoid cross-type clashes
                 var className = node.Identifier.Text;
@@ -78,7 +81,7 @@ namespace Loaders.Obfuscation.Rewriters
         private static bool ShouldSkip(MethodDeclarationSyntax method)
         {
             // Skip overrides, extern, operators and special-name accessors
-            if (//method.Modifiers.Any(SyntaxKind.OverrideKeyword) ||
+            if (method.Modifiers.Any(SyntaxKind.OverrideKeyword) ||
                 method.Modifiers.Any(SyntaxKind.ExternKeyword))
             {
                 return true;

@@ -21,14 +21,17 @@ namespace Loaders.Obfuscation.Rewriters
 
         private readonly SemanticModel _semanticModel;
         private readonly IDictionary<string, HashSet<string>> _reservedMemberNames;
+        private readonly IObfuscatedNameProvider _nameProvider;
         private readonly Stack<ClassRewriteContext> _classContexts = new Stack<ClassRewriteContext>();
 
         public OutAssignmentMethodRewriter(
             SemanticModel semanticModel,
-            IDictionary<string, HashSet<string>> reservedMemberNames)
+            IDictionary<string, HashSet<string>> reservedMemberNames,
+            IObfuscatedNameProvider nameProvider)
         {
             _semanticModel = semanticModel ?? throw new ArgumentNullException(nameof(semanticModel));
             _reservedMemberNames = reservedMemberNames ?? throw new ArgumentNullException(nameof(reservedMemberNames));
+            _nameProvider = nameProvider ?? throw new ArgumentNullException(nameof(nameProvider));
         }
 
         public bool Changed { get; private set; }
@@ -517,10 +520,13 @@ namespace Loaders.Obfuscation.Rewriters
                 .WithBody(SyntaxFactory.Block(assignment));
         }
 
-        private static string ReserveHelperName(ClassRewriteContext context, ITypeSymbol targetType)
+        private string ReserveHelperName(ClassRewriteContext context, ITypeSymbol targetType)
         {
-            var baseName = ObfuscatedNameGenerator.Generate(
-                "OutAssignmentHelper:" + targetType.ToDisplayString(TypeDisplayFormat));
+            var baseName = _nameProvider.Generate(
+                "OutAssignmentHelper:" +
+                context.ClassSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) +
+                ":" +
+                targetType.ToDisplayString(TypeDisplayFormat));
             var helperName = baseName;
             var suffix = 1;
             while (!context.ReservedMemberNames.Add(helperName))

@@ -2,15 +2,37 @@
 
 Loaders is a .NET Framework 4.8 obfuscation pipeline: it copies a C# project to a working directory, applies obfuscation steps, then compiles and runs the obfuscated binary.
 
+## Pipeline
+
+```mermaid
+flowchart LR
+    A["Prepare output project"] --> B["Load project metadata"]
+    B --> C["String obfuscation"]
+    C --> D["Method overloads"]
+    D --> E{"--out-assignment-methods?"}
+    E -- "yes" --> F["Out-assignment methods"]
+    E -- "no" --> G{"--rename-extended-symbols?"}
+    F --> G
+    G -- "yes" --> H["Namespace/type rename"]
+    G -- "no" --> I["Class rename"]
+    H --> J["Constructor fix"]
+    I --> J
+    J --> K{"--rename-extended-symbols?"}
+    K -- "yes" --> L["Member/parameter/local rename"]
+    K -- "no" --> M["Method rename"]
+    L --> N["Compile"]
+    M --> N
+```
+
 ## Core process
 
 - **PrepareOutputProject**: copy the source project into an isolated folder.
-- **LoadProject**: parse the csproj to collect C# files and assembly references.
+- **LoadProject**: parse the csproj to collect C# files, assembly references, output type, language version and unsafe settings.
 - **String obfuscation**: remove comments and rewrite string literals.
-- **Overload injection**: add harmless method overloads to increase control-flow noise.
-- **Semantic class renaming**: Roslyn symbols safely update all references across files.
+- **Overload injection**: add harmless method overloads to increase control-flow noise; extension methods are skipped.
+- **Out-assignment methods**: optional `--out-assignment-methods` pass that lifts safe local initializers into generated helper methods with `out var`.
+- **Semantic class or extended renaming**: default mode renames classes/methods; `--rename-extended-symbols` widens this to namespaces, types, members, parameters and locals.
 - **Syntactic constructor fix-up**: adjust call sites that semantic renaming may miss.
-- **Semantic method renaming**: Roslyn symbols, using pre-filtered entries and overload disambiguation.
 - **Compile**: build and run the obfuscated assembly in memory.
 
 ## Semantic vs syntactic renaming
@@ -23,6 +45,9 @@ Loaders is a .NET Framework 4.8 obfuscation pipeline: it copies a C# project to 
 - **`InMemCompiler`**: orchestrates the pipeline.
 - **`ClassRenamer`**: semantic class renamer via Roslyn.
 - **`MethodRenamer`**: semantic method renamer driven by `MethodRenameEntry`.
+- **`ExtendedSymbolRenameService`**: opt-in semantic rename for namespaces, types, members, parameters and locals.
+- **`OutAssignmentMethodService`**: opt-in local initializer to helper-method rewrite.
+- **`ObfuscatedNameGenerator`**: chooses the default hash provider or the BeLeo provider.
 - **`MethodCollectionRewriter`**: collects eligible methods, captures overload info.
 - **`SimpleConstructorRenameService`**: focused syntactic constructor pass.
 - **`StringLiteralObfuscationService`** and rewriters: string processing and comment removal.
@@ -45,7 +70,27 @@ Loaders is a .NET Framework 4.8 obfuscation pipeline: it copies a C# project to 
 Loaders.exe --source C:\path\to\source --output C:\path\to\output
 ```
 
+- Optional flags:
+  - `--out-assignment-methods`: rewrite safe local declarations such as `var dto = (ErrorDTO)result;` to generated helper calls with `out var`.
+  - `--rename-extended-symbols`: enable the wider semantic rename scope for namespaces, classes, structs, interfaces, enums, enum members, delegates, methods, properties, fields, events, parameters and locals.
+  - `--BeLeo`: generate obfuscated names from the embedded plain-text War and Peace resource instead of the default `Microsoft` + hash pattern. This changes only the name provider; it does not widen rename scope by itself.
 - The source directory must contain exactly one `.csproj` file.
 - Source and output directories must be separate; output is recreated for each run.
 - File-based stages display percentage progress. Roslyn symbol renaming and compilation display a live status.
 - Use `Loaders.exe --help` for the generated command-line help.
+
+## Codecepticon scope comparison
+
+| Scope | Codecepticon C# rename | Loaders default | Loaders `--rename-extended-symbols` |
+| --- | --- | --- | --- |
+| Namespaces | Yes | No | Yes |
+| Classes | Yes | Yes | Yes |
+| Structs | Yes | No | Yes |
+| Interfaces | Collected as interface contracts for skips | No | Yes, as types |
+| Enums and enum members | Yes | No | Yes |
+| Delegates | Renamed through function mapping | No | Yes |
+| Methods/functions | Yes, with override/external/interface skips | Yes, conservative method pass | Yes, semantic member pass |
+| Properties | Yes, with override/interface skips | No | Yes |
+| Fields/events | Variables are collected syntactically | No | Yes |
+| Parameters | Yes | No | Yes |
+| Locals | Variables are collected syntactically | No | Yes |

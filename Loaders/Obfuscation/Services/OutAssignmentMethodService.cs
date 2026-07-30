@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Loaders.Obfuscation.Rewriters;
+using Loaders.Obfuscation.Utilities;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Formatting;
@@ -11,11 +12,19 @@ namespace Loaders.Obfuscation.Services
 {
     internal static class OutAssignmentMethodService
     {
-        public static void Rewrite(ProjectFileInfo projectInfo, Action<string> reportProgress)
+        public static void Rewrite(
+            ProjectFileInfo projectInfo,
+            Action<string> reportProgress,
+            IObfuscatedNameProvider nameProvider)
         {
             if (projectInfo == null)
             {
                 throw new ArgumentNullException(nameof(projectInfo));
+            }
+
+            if (nameProvider == null)
+            {
+                throw new ArgumentNullException(nameof(nameProvider));
             }
 
             using var workspace = new AdhocWorkspace();
@@ -52,7 +61,7 @@ namespace Loaders.Obfuscation.Services
                 }
 
                 var semanticModel = compilation.GetSemanticModel(syntaxTree);
-                var rewriter = new OutAssignmentMethodRewriter(semanticModel, reservedMemberNames);
+                var rewriter = new OutAssignmentMethodRewriter(semanticModel, reservedMemberNames, nameProvider);
                 var newRoot = rewriter.Visit(root);
 
                 if (rewriter.Changed && !string.IsNullOrWhiteSpace(document.FilePath))
