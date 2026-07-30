@@ -108,7 +108,8 @@ internal static class InMemCompiler
                 classMap = ExtendedSymbolRenameService.RenameNamespacesAndTypes(
                     projectPaths,
                     nameProvider,
-                    ExcludedClasses);
+                    ExcludedClasses,
+                    message => context.Status(message));
                 WriteClassMap(classMap, normalizedOutputFolder);
             });
         }
@@ -140,7 +141,8 @@ internal static class InMemCompiler
                 ExtendedSymbolRenameService.RenameMembersAndLocals(
                     projectPaths,
                     nameProvider,
-                    outAssignmentMethods);
+                    outAssignmentMethods,
+                    message => context.Status(message));
             });
         }
         else
@@ -496,9 +498,6 @@ internal static class InMemCompiler
         }
     }
 
-    private static readonly string CompilationErrorsLogPath =
-        Path.GetFullPath(Path.Combine(".", "compilation-errors.log"));
-
     private static bool Compile(
         ProjectFileInfo projectInfo,
         string outputFolder,
@@ -524,14 +523,16 @@ internal static class InMemCompiler
         {
             IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error);
             AnsiConsole.WriteLine($"Compilation failed with {failures.Count()} errors.");
+            var compilationErrorsLogPath = Path.GetFullPath(Path.Combine(outputFolder, "compilation-errors.log"));
+            AnsiConsole.WriteLine($"Compilation errors log: {compilationErrorsLogPath}");
 
-            var compilationErrorsDirectory = Path.GetDirectoryName(CompilationErrorsLogPath);
+            var compilationErrorsDirectory = Path.GetDirectoryName(compilationErrorsLogPath);
             if (!string.IsNullOrEmpty(compilationErrorsDirectory))
             {
                 Directory.CreateDirectory(compilationErrorsDirectory);
             }
 
-            using var logWriter = new StreamWriter(CompilationErrorsLogPath, append: false);
+            using var logWriter = new StreamWriter(compilationErrorsLogPath, append: false);
             foreach (Diagnostic diagnostic in failures)
             {
                 AnsiConsole.WriteLine("{0}: {1}, {2}", diagnostic.Id, diagnostic.GetMessage(), diagnostic.Location);

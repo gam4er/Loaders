@@ -33,7 +33,7 @@ flowchart LR
 - **Out-assignment methods**: optional `--out-assignment-methods` pass that lifts safe local initializers into generated helper methods with `out var`.
 - **Semantic class or extended renaming**: default mode renames classes/methods; `--rename-extended-symbols` widens this to namespaces, types, members, parameters and locals.
 - **Syntactic constructor fix-up**: adjust call sites that semantic renaming may miss.
-- **Compile**: build and run the obfuscated assembly in memory.
+- **Compile**: build the obfuscated assembly in memory and run `--help` only for console executables.
 
 ## Semantic vs syntactic renaming
 
@@ -57,9 +57,22 @@ flowchart LR
 
 - Run semantic renaming (classes/methods) before syntactic fixes.
 - Provide complete `MetadataReference` to the Roslyn workspace (parsed from csproj + common framework libs).
-- Centralize exclusion rules (override, interface implementations, extern/DllImport, `Dispose`, serialization callbacks, `Main`, `object` methods) in collection.
+- Centralize exclusion rules (override, interface implementations, extern/DllImport, `Main`, `Dispose`, `ReleaseHandle`, serialization callbacks and `object` methods) in collection.
 - Use structured entries (class, method, parameter count, new name) to avoid collisions and handle overloads.
 - Persist changes to disk after successful semantic updates and a clean build.
+
+## Rename safety rules
+
+Loaders keeps a conservative non-rename list so semantic rewrites do not break framework, interop or external contracts:
+
+- Generated/designer files are skipped: `AssemblyInfo.cs`, `*.Designer.cs`, `*.g.cs`, `*.g.i.cs`, `*.Generated.cs`.
+- Constructors, destructors, operators and accessors are not renamed directly.
+- Common contract names are preserved: `Main`, `Dispose`, `ToString`, `GetHashCode`, `Equals`, and SafeHandle `ReleaseHandle`.
+- `override`, `extern`, `[DllImport]`, P/Invoke and serialization callback methods are skipped.
+- Members implementing interface contracts are skipped when Roslyn identifies them through `FindImplementationForInterfaceMember`.
+- Reflection/serialization-sensitive symbols with JSON, XML, DataContract, Newtonsoft, MessagePack, Proto/YAML and CLI option attributes are skipped.
+- SafeHandle-derived types may still be renamed, but mandatory framework members such as `ReleaseHandle()` and `IsInvalid` keep their original names.
+- Out-assignment helpers get their generated name when created and are skipped by later method/member rename when `--out-assignment-methods` is active.
 
 ## Build & run
 
@@ -77,6 +90,7 @@ Loaders.exe --source C:\path\to\source --output C:\path\to\output
 - The source directory must contain exactly one `.csproj` file.
 - Source and output directories must be separate; output is recreated for each run.
 - File-based stages display percentage progress. Roslyn symbol renaming and compilation display a live status.
+- `class-map.csv` and `compilation-errors.log` are written inside the output directory.
 - Use `Loaders.exe --help` for the generated command-line help.
 
 ## Codecepticon scope comparison

@@ -104,7 +104,8 @@ namespace Loaders.Obfuscation.Rewriters
             // Skip common System.Object contract methods
             if (name == nameof(object.ToString) ||
                 name == nameof(object.GetHashCode) ||
-                (name == nameof(object.Equals) && method.ParameterList?.Parameters.Count == 1))
+                (name == nameof(object.Equals) && method.ParameterList?.Parameters.Count == 1) ||
+                name == "ReleaseHandle")
             {
                 return true;
             }
@@ -115,14 +116,11 @@ namespace Loaders.Obfuscation.Rewriters
                 return true;
             }
 
-            // Skip P/Invoke methods marked with [DllImport]
-            /*
             if (method.AttributeLists.SelectMany(a => a.Attributes)
                     .Any(a => a.Name.ToString().EndsWith("DllImport") || a.Name.ToString().EndsWith("DllImportAttribute")))
             {
                 return true;
             }
-            */
 
             // Skip serialization callbacks
             var serializationAttrNames = new[]

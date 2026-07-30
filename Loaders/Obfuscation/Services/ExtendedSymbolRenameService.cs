@@ -12,6 +12,8 @@ namespace Loaders.Obfuscation.Services
 {
     internal static class ExtendedSymbolRenameService
     {
+        private const int RenameStatusInterval = 250;
+
         private static readonly SymbolDisplayFormat FullyQualifiedDisplay =
             SymbolDisplayFormat.FullyQualifiedFormat;
 
@@ -51,7 +53,8 @@ namespace Loaders.Obfuscation.Services
         public static IReadOnlyDictionary<string, string> RenameNamespacesAndTypes(
             ProjectFileInfo projectInfo,
             IObfuscatedNameProvider nameProvider,
-            IReadOnlyCollection<string> excludedTypeNames)
+            IReadOnlyCollection<string> excludedTypeNames,
+            Action<string> updateStatus = null)
         {
             if (projectInfo == null)
             {
@@ -66,14 +69,18 @@ namespace Loaders.Obfuscation.Services
             RunStage(
                 projectInfo,
                 "LoadersExtendedNamespaceRename",
+                "namespace rename",
                 nameProvider,
-                CollectNamespaceCandidates);
+                CollectNamespaceCandidates,
+                updateStatus);
 
             var typeCandidates = RunStage(
                 projectInfo,
                 "LoadersExtendedTypeRename",
+                "type rename",
                 nameProvider,
-                (project, generatedNames) => CollectTypeCandidates(project, excludedTypeNames, generatedNames));
+                (project, generatedNames) => CollectTypeCandidates(project, excludedTypeNames, generatedNames),
+                updateStatus);
 
             return BuildClassMap(typeCandidates);
         }
@@ -81,7 +88,8 @@ namespace Loaders.Obfuscation.Services
         public static void RenameMembersAndLocals(
             ProjectFileInfo projectInfo,
             IObfuscatedNameProvider nameProvider,
-            bool skipOutAssignmentHelpers)
+            bool skipOutAssignmentHelpers,
+            Action<string> updateStatus = null)
         {
             if (projectInfo == null)
             {
@@ -96,52 +104,77 @@ namespace Loaders.Obfuscation.Services
             RunStage(
                 projectInfo,
                 "LoadersExtendedMemberRename",
+                "member rename",
                 nameProvider,
-                (project, generatedNames) => CollectMemberCandidates(project, skipOutAssignmentHelpers, generatedNames));
+                (project, generatedNames) => CollectMemberCandidates(project, skipOutAssignmentHelpers, generatedNames),
+                updateStatus);
 
             RunStage(
                 projectInfo,
                 "LoadersExtendedParameterRename",
+                "parameter rename",
                 nameProvider,
-                CollectParameterCandidates);
+                CollectParameterCandidates,
+                updateStatus);
 
             RunStage(
                 projectInfo,
                 "LoadersExtendedLocalRename",
+                "local rename",
                 nameProvider,
-                CollectLocalCandidates);
+                CollectLocalCandidates,
+                updateStatus);
         }
 
         private static IReadOnlyList<RenameCandidate> RunStage(
             ProjectFileInfo projectInfo,
             string projectName,
+            string stageName,
             IObfuscatedNameProvider nameProvider,
-            Func<Project, IReadOnlyCollection<string>, IReadOnlyList<SymbolCandidate>> collectCandidates)
+            Func<Project, IReadOnlyCollection<string>, IReadOnlyList<SymbolCandidate>> collectCandidates,
+            Action<string> updateStatus)
         {
             using var workspace = new AdhocWorkspace();
             var project = ProjectReferenceResolver.CreateProject(workspace, projectInfo, projectName);
             var solution = project.Solution;
             var generatedNames = new HashSet<string>(StringComparer.Ordinal);
+            updateStatus?.Invoke($"[yellow]{stageName}: collecting candidates[/]");
             var plannedRenames = collectCandidates(project, generatedNames)
-                .Select(candidate => new RenameCandidate(
-                    candidate.Symbol,
-                    candidate.OriginalName,
-                    nameProvider.Generate(candidate.Kind + ":" + GetSymbolIdentity(candidate.Symbol)),
-                    candidate.Kind,
-                    candidate.DeclarationKind,
-                    candidate.FilePath))
+                .Select(candidate =>
+                {
+                    return new RenameCandidate(
+                        candidate.Symbol,
+                        candidate.OriginalName,
+                        nameProvider.Generate(candidate.Kind + ":" + GetSymbolIdentity(candidate.Symbol)),
+                        candidate.Kind,
+                        candidate.DeclarationKind,
+                        candidate.FilePath,
+                        GetDeclarationId(candidate.Symbol),
+                        GetSymbolMatchKey(candidate.Symbol));
+                })
                 .ToList();
 
             var appliedRenames = new List<RenameCandidate>();
+            var skipped = 0;
+            var failed = 0;
+            updateStatus?.Invoke($"[yellow]{stageName}: collected {plannedRenames.Count} symbols[/]");
 
-            foreach (var plannedRename in plannedRenames)
+            for (var index = 0; index < plannedRenames.Count; index++)
             {
+                var plannedRename = plannedRenames[index];
+                if (index % RenameStatusInterval == 0)
+                {
+                    updateStatus?.Invoke(
+                        $"[yellow]{stageName}: {index}/{plannedRenames.Count}, applied {appliedRenames.Count}, skipped {skipped}, failed {failed}[/]");
+                }
+
                 generatedNames.Add(plannedRename.NewName);
                 var currentSymbol = ResolveCurrentSymbol(project, plannedRename);
                 if (currentSymbol == null ||
                     generatedNames.Contains(currentSymbol.Name) ||
                     string.Equals(currentSymbol.Name, plannedRename.NewName, StringComparison.Ordinal))
                 {
+                    skipped++;
                     continue;
                 }
 
@@ -154,6 +187,7 @@ namespace Loaders.Obfuscation.Services
                 catch (Exception exception) when (IsSkippableRenameFailure(exception))
                 {
                     generatedNames.Add(currentSymbol.Name);
+                    failed++;
                     continue;
                 }
 
@@ -165,6 +199,9 @@ namespace Loaders.Obfuscation.Services
                 }
             }
 
+            updateStatus?.Invoke(
+                $"[yellow]{stageName}: {plannedRenames.Count}/{plannedRenames.Count}, applied {appliedRenames.Count}, skipped {skipped}, failed {failed}[/]");
+            Console.WriteLine($"{stageName}: collected {plannedRenames.Count}, applied {appliedRenames.Count}, skipped {skipped}, failed {failed}.");
             PersistDocuments(project, solution);
             return appliedRenames;
         }
@@ -178,6 +215,19 @@ namespace Loaders.Obfuscation.Services
 
         private static ISymbol ResolveCurrentSymbol(Project project, RenameCandidate candidate)
         {
+            if (!string.IsNullOrWhiteSpace(candidate.DeclarationId))
+            {
+                var compilation = project.GetCompilationAsync().GetAwaiter().GetResult();
+                if (compilation != null)
+                {
+                    var symbolFromDeclarationId = ResolveFromDeclarationId(compilation, candidate);
+                    if (symbolFromDeclarationId != null)
+                    {
+                        return symbolFromDeclarationId;
+                    }
+                }
+            }
+
             var document = project.Documents.FirstOrDefault(item =>
                 string.Equals(item.FilePath, candidate.FilePath, StringComparison.OrdinalIgnoreCase));
             if (document == null)
@@ -195,54 +245,47 @@ namespace Loaders.Obfuscation.Services
             switch (candidate.DeclarationKind)
             {
                 case ExtendedDeclarationKind.Namespace:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<NamespaceDeclarationSyntax>()
                         .Where(node => GetNamespaceLastName(node.Name.ToString()) == candidate.OriginalName)
-                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol), candidate);
                 case ExtendedDeclarationKind.FileScopedNamespace:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<FileScopedNamespaceDeclarationSyntax>()
                         .Where(node => GetNamespaceLastName(node.Name.ToString()) == candidate.OriginalName)
-                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol), candidate);
                 case ExtendedDeclarationKind.Type:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<BaseTypeDeclarationSyntax>()
                         .Where(node => node.Identifier.Text == candidate.OriginalName)
                         .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
                         .Concat(root.DescendantNodesAndSelf()
                             .OfType<DelegateDeclarationSyntax>()
                             .Where(node => node.Identifier.Text == candidate.OriginalName)
-                            .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol))
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                            .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)), candidate);
                 case ExtendedDeclarationKind.Method:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<MethodDeclarationSyntax>()
                         .Where(node => node.Identifier.Text == candidate.OriginalName)
-                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol), candidate);
                 case ExtendedDeclarationKind.Property:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<PropertyDeclarationSyntax>()
                         .Where(node => node.Identifier.Text == candidate.OriginalName)
-                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol), candidate);
                 case ExtendedDeclarationKind.Field:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<FieldDeclarationSyntax>()
                         .SelectMany(node => node.Declaration.Variables)
                         .Where(node => node.Identifier.Text == candidate.OriginalName)
-                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol), candidate);
                 case ExtendedDeclarationKind.EnumMember:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<EnumMemberDeclarationSyntax>()
                         .Where(node => node.Identifier.Text == candidate.OriginalName)
-                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol), candidate);
                 case ExtendedDeclarationKind.Event:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<EventDeclarationSyntax>()
                         .Where(node => node.Identifier.Text == candidate.OriginalName)
                         .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
@@ -250,16 +293,14 @@ namespace Loaders.Obfuscation.Services
                             .OfType<EventFieldDeclarationSyntax>()
                             .SelectMany(node => node.Declaration.Variables)
                             .Where(node => node.Identifier.Text == candidate.OriginalName)
-                            .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol))
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                            .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)), candidate);
                 case ExtendedDeclarationKind.Parameter:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<ParameterSyntax>()
                         .Where(node => node.Identifier.Text == candidate.OriginalName)
-                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                        .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol), candidate);
                 case ExtendedDeclarationKind.Local:
-                    return root.DescendantNodesAndSelf()
+                    return SelectSingleMatchingSymbol(root.DescendantNodesAndSelf()
                         .OfType<VariableDeclaratorSyntax>()
                         .Where(node => node.Identifier.Text == candidate.OriginalName)
                         .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)
@@ -271,11 +312,67 @@ namespace Loaders.Obfuscation.Services
                         .Concat(root.DescendantNodesAndSelf()
                             .OfType<CatchDeclarationSyntax>()
                             .Where(node => node.Identifier.Text == candidate.OriginalName)
-                            .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol))
-                        .FirstOrDefault(symbol => symbol?.Name == candidate.OriginalName);
+                            .Select(node => semanticModel.GetDeclaredSymbol(node) as ISymbol)), candidate);
                 default:
                     return null;
             }
+        }
+
+        private static ISymbol ResolveFromDeclarationId(Compilation compilation, RenameCandidate candidate)
+        {
+            try
+            {
+                return SelectSingleMatchingSymbol(
+                    new[] { DocumentationCommentId.GetFirstSymbolForDeclarationId(candidate.DeclarationId, compilation) },
+                    candidate);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static ISymbol SelectSingleMatchingSymbol(IEnumerable<ISymbol> symbols, RenameCandidate candidate)
+        {
+            var matches = symbols
+                .Where(symbol => IsExpectedSymbol(symbol, candidate))
+                .Distinct(SymbolEqualityComparer.Default)
+                .ToList();
+
+            return matches.Count == 1 ? matches[0] : null;
+        }
+
+        private static bool IsExpectedSymbol(ISymbol symbol, RenameCandidate candidate)
+        {
+            return symbol != null &&
+                   string.Equals(symbol.Name, candidate.OriginalName, StringComparison.Ordinal) &&
+                   IsExpectedDeclarationKind(symbol, candidate) &&
+                   IsDeclaredInFile(symbol, candidate.FilePath) &&
+                   string.Equals(GetSymbolMatchKey(symbol), candidate.MatchKey, StringComparison.Ordinal);
+        }
+
+        private static bool IsExpectedDeclarationKind(ISymbol symbol, RenameCandidate candidate)
+        {
+            var declarationKind = GetDeclarationKind(symbol, candidate.Kind);
+            return declarationKind == candidate.DeclarationKind ||
+                   (declarationKind == ExtendedDeclarationKind.Namespace &&
+                    candidate.DeclarationKind == ExtendedDeclarationKind.FileScopedNamespace);
+        }
+
+        private static bool IsDeclaredInFile(ISymbol symbol, string filePath)
+        {
+            var sourceLocations = symbol.Locations
+                .Where(location => location.IsInSource)
+                .ToList();
+
+            if (sourceLocations.Count == 0)
+            {
+                return true;
+            }
+
+            return sourceLocations.Any(location =>
+                location.IsInSource &&
+                string.Equals(location.SourceTree?.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
         }
 
         private static string GetNamespaceLastName(string namespaceName)
@@ -685,6 +782,7 @@ namespace Loaders.Obfuscation.Services
                 HasDllImportAttribute(symbol) ||
                 HasSerializationCallbackAttribute(symbol) ||
                 IsCommonContractName(symbol.Name) ||
+                IsSafeHandleContractMember(symbol) ||
                 IsInterfaceContractMember(symbol))
             {
                 return false;
@@ -703,6 +801,7 @@ namespace Loaders.Obfuscation.Services
                    !HasAnyGeneratedDeclaration(symbol) &&
                    !HasSensitiveAttribute(symbol) &&
                    !IsCommonContractName(symbol.Name) &&
+                   !IsSafeHandleContractMember(symbol) &&
                    !IsInterfaceContractMember(symbol);
         }
 
@@ -769,6 +868,7 @@ namespace Loaders.Obfuscation.Services
                    !HasDllImportAttribute(method) &&
                    !HasSerializationCallbackAttribute(method) &&
                    !IsCommonContractName(method.Name) &&
+                   !IsSafeHandleContractMember(method) &&
                    !IsInterfaceContractMember(method);
         }
 
@@ -788,7 +888,50 @@ namespace Loaders.Obfuscation.Services
                    string.Equals(name, "Dispose", StringComparison.Ordinal) ||
                    string.Equals(name, nameof(object.ToString), StringComparison.Ordinal) ||
                    string.Equals(name, nameof(object.GetHashCode), StringComparison.Ordinal) ||
-                   string.Equals(name, nameof(object.Equals), StringComparison.Ordinal);
+                   string.Equals(name, nameof(object.Equals), StringComparison.Ordinal) ||
+                   string.Equals(name, "ReleaseHandle", StringComparison.Ordinal);
+        }
+
+        private static bool IsSafeHandleContractMember(ISymbol symbol)
+        {
+            var containingType = symbol?.ContainingType;
+            if (containingType == null || !DerivesFromSafeHandle(containingType))
+            {
+                return false;
+            }
+
+            if (symbol is IMethodSymbol method)
+            {
+                return string.Equals(method.Name, "ReleaseHandle", StringComparison.Ordinal) &&
+                       method.MethodKind == MethodKind.Ordinary &&
+                       method.Parameters.Length == 0 &&
+                       method.ReturnType.SpecialType == SpecialType.System_Boolean;
+            }
+
+            if (symbol is IPropertySymbol property)
+            {
+                return string.Equals(property.Name, "IsInvalid", StringComparison.Ordinal) &&
+                       property.Parameters.Length == 0 &&
+                       property.Type.SpecialType == SpecialType.System_Boolean;
+            }
+
+            return false;
+        }
+
+        private static bool DerivesFromSafeHandle(INamedTypeSymbol type)
+        {
+            for (var current = type; current != null; current = current.BaseType)
+            {
+                var fullName = current.ToDisplayString(FullyQualifiedDisplay);
+                if (string.Equals(fullName, "global::System.Runtime.InteropServices.SafeHandle", StringComparison.Ordinal) ||
+                    string.Equals(fullName, "global::Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid", StringComparison.Ordinal) ||
+                    string.Equals(fullName, "global::Microsoft.Win32.SafeHandles.SafeHandleMinusOneIsInvalid", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool HasDllImportAttribute(ISymbol symbol)
@@ -882,6 +1025,93 @@ namespace Loaders.Obfuscation.Services
                 IsGeneratedFile(reference.SyntaxTree?.FilePath));
         }
 
+        private static string GetDeclarationId(ISymbol symbol)
+        {
+            try
+            {
+                return DocumentationCommentId.CreateDeclarationId(symbol) ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string GetSymbolMatchKey(ISymbol symbol)
+        {
+            switch (symbol)
+            {
+                case INamespaceSymbol namespaceSymbol:
+                    return "namespace:" + namespaceSymbol.ToDisplayString(FullyQualifiedDisplay);
+                case INamedTypeSymbol typeSymbol:
+                    return string.Join("|",
+                        "type",
+                        typeSymbol.TypeKind.ToString(),
+                        typeSymbol.Arity.ToString(),
+                        GetContainingSymbolKey(typeSymbol.ContainingSymbol));
+                case IMethodSymbol methodSymbol:
+                    return string.Join("|",
+                        "method",
+                        methodSymbol.MethodKind.ToString(),
+                        methodSymbol.Arity.ToString(),
+                        GetTypeKey(methodSymbol.ReturnType),
+                        GetContainingSymbolKey(methodSymbol.ContainingType),
+                        GetParameterListKey(methodSymbol.Parameters));
+                case IPropertySymbol propertySymbol:
+                    return string.Join("|",
+                        "property",
+                        GetTypeKey(propertySymbol.Type),
+                        GetContainingSymbolKey(propertySymbol.ContainingType),
+                        GetParameterListKey(propertySymbol.Parameters));
+                case IFieldSymbol fieldSymbol:
+                    return string.Join("|",
+                        "field",
+                        GetTypeKey(fieldSymbol.Type),
+                        GetContainingSymbolKey(fieldSymbol.ContainingType));
+                case IEventSymbol eventSymbol:
+                    return string.Join("|",
+                        "event",
+                        GetTypeKey(eventSymbol.Type),
+                        GetContainingSymbolKey(eventSymbol.ContainingType));
+                case IParameterSymbol parameterSymbol:
+                    return string.Join("|",
+                        "parameter",
+                        parameterSymbol.Ordinal.ToString(),
+                        parameterSymbol.RefKind.ToString(),
+                        GetTypeKey(parameterSymbol.Type),
+                        GetContainingSymbolKey(parameterSymbol.ContainingSymbol));
+                case ILocalSymbol localSymbol:
+                    return string.Join("|",
+                        "local",
+                        localSymbol.IsRef.ToString(),
+                        GetTypeKey(localSymbol.Type),
+                        GetContainingSymbolKey(localSymbol.ContainingSymbol));
+                default:
+                    return symbol.Kind + ":" + symbol.ToDisplayString(FullyQualifiedDisplay);
+            }
+        }
+
+        private static string GetParameterListKey(IEnumerable<IParameterSymbol> parameters)
+        {
+            return string.Join(",",
+                parameters.Select(parameter => string.Join(":",
+                    parameter.Ordinal.ToString(),
+                    parameter.RefKind.ToString(),
+                    GetTypeKey(parameter.Type))));
+        }
+
+        private static string GetTypeKey(ITypeSymbol type)
+        {
+            return type?.ToDisplayString(FullyQualifiedDisplay) ?? string.Empty;
+        }
+
+        private static string GetContainingSymbolKey(ISymbol symbol)
+        {
+            return symbol == null
+                ? string.Empty
+                : symbol.Kind + ":" + symbol.ToDisplayString(FullyQualifiedDisplay);
+        }
+
         private static string GetSymbolIdentity(ISymbol symbol)
         {
             var sourceLocation = symbol.Locations.FirstOrDefault(location => location.IsInSource);
@@ -959,7 +1189,9 @@ namespace Loaders.Obfuscation.Services
                 string newName,
                 ExtendedRenameKind kind,
                 ExtendedDeclarationKind declarationKind,
-                string filePath)
+                string filePath,
+                string declarationId,
+                string matchKey)
             {
                 Symbol = symbol;
                 OriginalName = originalName;
@@ -967,6 +1199,8 @@ namespace Loaders.Obfuscation.Services
                 Kind = kind;
                 DeclarationKind = declarationKind;
                 FilePath = filePath;
+                DeclarationId = declarationId;
+                MatchKey = matchKey;
             }
 
             public ISymbol Symbol { get; }
@@ -975,6 +1209,8 @@ namespace Loaders.Obfuscation.Services
             public ExtendedRenameKind Kind { get; }
             public ExtendedDeclarationKind DeclarationKind { get; }
             public string FilePath { get; }
+            public string DeclarationId { get; }
+            public string MatchKey { get; }
         }
 
         private sealed class SymbolCandidate

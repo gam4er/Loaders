@@ -10,7 +10,7 @@ namespace Loaders.Obfuscation.Rewriters
     /// Adds random overloads to methods to complicate control flow analysis.
     ///
     /// Overloads are only generated for suitable methods (no expression-bodied
-    /// members, no abstract/DllImport/default-parameter methods) to avoid
+    /// members, no abstract/override/DllImport/default-parameter methods) to avoid
     /// breaking signatures that are relied upon by external callers.
     /// </summary>
     public sealed class MethodOverloadRewriter : CSharpSyntaxRewriter
@@ -24,10 +24,11 @@ namespace Loaders.Obfuscation.Rewriters
                 .OfType<MethodDeclarationSyntax>()
                 .Where(method => method.ExpressionBody == null)
                 .Where(method => !method.Modifiers.Any(SyntaxKind.AbstractKeyword))
+                .Where(method => !method.Modifiers.Any(SyntaxKind.OverrideKeyword))
                 .Where(method => !HasDllImportAttribute(method))
                 .Where(method => !IsExtensionMethod(method))
                 .Where(method => !method.ParameterList.Parameters.Any(parameter => parameter.Default != null))
-                .Where(method => !IsEntryPoint(method))
+                .Where(method => !IsFrameworkContractName(method.Identifier.Text))
                 .ToList();
 
             var overloads = candidateMethods
@@ -47,11 +48,14 @@ namespace Loaders.Obfuscation.Rewriters
                 .Any(attr => attr.Name.ToString().Contains("DllImport"));
         }
 
-        private static bool IsEntryPoint(MethodDeclarationSyntax method)
+        private static bool IsFrameworkContractName(string name)
         {
-            // Skip methods named "Main" so we do not alter the program entry point
-            // signature. Overloading the entry point can confuse the runtime.
-            return string.Equals(method.Identifier.Text, "Main", StringComparison.Ordinal);
+            return string.Equals(name, "Main", StringComparison.Ordinal) ||
+                   string.Equals(name, nameof(IDisposable.Dispose), StringComparison.Ordinal) ||
+                   string.Equals(name, nameof(object.ToString), StringComparison.Ordinal) ||
+                   string.Equals(name, nameof(object.GetHashCode), StringComparison.Ordinal) ||
+                   string.Equals(name, nameof(object.Equals), StringComparison.Ordinal) ||
+                   string.Equals(name, "ReleaseHandle", StringComparison.Ordinal);
         }
 
         private static bool IsExtensionMethod(MethodDeclarationSyntax method)
@@ -74,7 +78,7 @@ namespace Loaders.Obfuscation.Rewriters
                         .SequenceEqual(parameterTypes));
         }
 
-        private MethodDeclarationSyntax? CreateOverloadedMethod(MethodDeclarationSyntax method)
+        private MethodDeclarationSyntax CreateOverloadedMethod(MethodDeclarationSyntax method)
         {
             string randomParameterName = GenerateRandomIdentifier();
             var newParameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(randomParameterName))
