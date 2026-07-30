@@ -6,6 +6,12 @@
 - Update `Compilation failed errors.list` and `obf.list` only when running the pipeline; do not hand-edit their contents.
 - Add meaningful tests or reproduction snippets to commit messages or PR descriptions if you fix an obfuscation gap.
 
+## Long-running presentation work
+
+- When working on the DefCon presentation in `Presentation`, keep a resumable work log in `Presentation/slide-work/WORKLOG.md`.
+- Update the work log after creating slide folders, exporting PDFs, extracting slide text/previews, checking tools/connectors, or making a batch of slide rewrite notes.
+- If a network/session interruption happens, resume from the work log before redoing extraction or rewriting work.
+
 ## Web research and build environment
 
 - Before web research, check the Docker MCP Toolkit search tools. Prefer Brave, Perplexity, and Tavily when they are available, and verify important implementation details against official documentation or source repositories.
