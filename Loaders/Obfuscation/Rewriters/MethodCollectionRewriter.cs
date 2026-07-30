@@ -19,11 +19,23 @@ namespace Loaders.Obfuscation.Rewriters
     {
         private readonly Dictionary<string, string> _methodNameMap = new();
         private readonly List<MethodRenameEntry> _entries = new();
+        private readonly bool _includeDerivedPrivateStaticMethods;
+        private readonly bool _skipOutAssignmentHelpers;
+
+        public MethodCollectionRewriter(
+            bool includeDerivedPrivateStaticMethods = false,
+            bool skipOutAssignmentHelpers = false)
+        {
+            _includeDerivedPrivateStaticMethods = includeDerivedPrivateStaticMethods;
+            _skipOutAssignmentHelpers = skipOutAssignmentHelpers;
+        }
 
         public override SyntaxNode VisitClassDeclaration(ClassDeclarationSyntax node)
         {
+            var hasBaseType = node.BaseList != null && node.BaseList.Types.Count > 0;
+
             // Skip entire class if it derives from another type to avoid inheritance contract issues
-            if (node.BaseList != null && node.BaseList.Types.Count > 0)
+            if (hasBaseType && !_includeDerivedPrivateStaticMethods)
             {
                 return base.VisitClassDeclaration(node);
             }
@@ -32,6 +44,16 @@ namespace Loaders.Obfuscation.Rewriters
             // Walk methods in this class and collect rename map
             foreach (var method in node.Members.OfType<MethodDeclarationSyntax>())
             {
+                if (hasBaseType && !IsPrivateStaticMethod(method))
+                {
+                    continue;
+                }
+
+                if (_skipOutAssignmentHelpers && IsOutAssignmentHelper(method))
+                {
+                    continue;
+                }
+
                 if (ShouldSkip(method))
                 {
                     continue;
@@ -112,6 +134,36 @@ namespace Loaders.Obfuscation.Rewriters
             }
 
             return false;
+        }
+
+        private static bool IsPrivateStaticMethod(MethodDeclarationSyntax method)
+        {
+            return method.Modifiers.Any(SyntaxKind.PrivateKeyword) &&
+                   method.Modifiers.Any(SyntaxKind.StaticKeyword);
+        }
+
+        private static bool IsOutAssignmentHelper(MethodDeclarationSyntax method)
+        {
+            if (!IsPrivateStaticMethod(method) ||
+                !(method.ReturnType is PredefinedTypeSyntax returnType) ||
+                !returnType.Keyword.IsKind(SyntaxKind.VoidKeyword) ||
+                method.ParameterList.Parameters.Count == 0 ||
+                method.Body?.Statements.Count != 1)
+            {
+                return false;
+            }
+
+            var lastParameter = method.ParameterList.Parameters.Last();
+            if (!lastParameter.Modifiers.Any(SyntaxKind.OutKeyword) ||
+                !(method.Body.Statements[0] is ExpressionStatementSyntax expressionStatement) ||
+                !(expressionStatement.Expression is AssignmentExpressionSyntax assignment))
+            {
+                return false;
+            }
+
+            return assignment.IsKind(SyntaxKind.SimpleAssignmentExpression) &&
+                   assignment.Left is IdentifierNameSyntax left &&
+                   left.Identifier.Text == lastParameter.Identifier.Text;
         }
 
         public IReadOnlyDictionary<string, string> GetMethodMap() => _methodNameMap;

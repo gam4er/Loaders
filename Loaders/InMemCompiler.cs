@@ -68,7 +68,7 @@ internal static class InMemCompiler
         return app.Run(args);
     }
 
-    internal static int Run(string sourceFolder, string outputFolder)
+    internal static int Run(string sourceFolder, string outputFolder, bool outAssignmentMethods)
     {
         var normalizedSourceFolder = NormalizeDirectoryPath(sourceFolder);
         var normalizedOutputFolder = NormalizeDirectoryPath(outputFolder);
@@ -77,10 +77,18 @@ internal static class InMemCompiler
 
         PrepareOutputProject(normalizedSourceFolder, normalizedOutputFolder);
 
-        var projectPaths = LoadProject(normalizedOutputFolder, projectFileName);
+        var projectPaths = LoadProject(normalizedOutputFolder, normalizedSourceFolder, projectFileName);
 
         ObfuscateStringLiterals(projectPaths.CsFiles);
         AddMethodOverloads(projectPaths.CsFiles);
+
+        if (outAssignmentMethods)
+        {
+            RunFileProgressWithCallback(
+                "Rewriting assignments as out-methods",
+                projectPaths.CsFiles,
+                reportProgress => OutAssignmentMethodService.Rewrite(projectPaths, reportProgress));
+        }
 
         var classMap = CollectClassNameMap(projectPaths.CsFiles);
 
@@ -102,16 +110,22 @@ internal static class InMemCompiler
         RunStatus("Preparing method renaming", context =>
         {
             context.Status("[yellow]Collecting method symbols[/]");
-            methodMap = MethodRenamer.CollectMethodMap(projectPaths.CsFiles);
+            methodMap = MethodRenamer.CollectMethodMap(
+                projectPaths.CsFiles,
+                skipOutAssignmentHelpers: outAssignmentMethods);
             context.Status($"[yellow]Renaming {methodMap.Count} methods[/]");
-            MethodRenamer.RenameMethods(methodMap, projectPaths.CsFiles);
+            MethodRenamer.RenameMethods(
+                methodMap,
+                projectPaths.CsFiles,
+                skipOutAssignmentHelpers: outAssignmentMethods);
         });
 
+        var outputPath = string.Empty;
         var compilationSucceeded = false;
         RunStatus("Compiling obfuscated project", context =>
         {
             context.Status("[yellow]Emitting executable assembly[/]");
-            compilationSucceeded = Compile(projectPaths.CsFiles, projectPaths.References, normalizedOutputFolder);
+            compilationSucceeded = Compile(projectPaths, normalizedOutputFolder, out outputPath);
         });
 
         if (!compilationSucceeded)
@@ -120,7 +134,7 @@ internal static class InMemCompiler
         }
 
         AnsiConsole.MarkupLine("[green]Obfuscation completed.[/]");
-        AnsiConsole.WriteLine($"Output: {Path.Combine(normalizedOutputFolder, "Output.exe")}");
+        AnsiConsole.WriteLine($"Output: {outputPath}");
         return 0;
     }
 
@@ -296,9 +310,10 @@ internal static class InMemCompiler
         return path;
     }
 
-    private static (IReadOnlyList<string> CsFiles, IReadOnlyList<string> References) LoadProject(string projectRoot, string csprojName)
+    private static ProjectFileInfo LoadProject(string projectRoot, string sourceProjectRoot, string csprojName)
     {
         var csprojPath = Path.Combine(projectRoot, csprojName);
+        var sourceCsprojPath = Path.Combine(sourceProjectRoot, csprojName);
         XDocument csproj = XDocument.Load(csprojPath);
         XNamespace ns = csproj.Root?.Name.Namespace ?? throw new InvalidOperationException("Invalid csproj content");
 
@@ -312,8 +327,9 @@ internal static class InMemCompiler
 
         var references = csproj
             .Descendants(ns + "Reference")
-            .Attributes("Include")
-            .Select(a => a.Value)
+            .Select(reference => new ProjectReferenceInfo(
+                reference.Attribute("Include")?.Value,
+                reference.Element(ns + "HintPath")?.Value))
             .ToList();
 
         if (!csFiles.Any())
@@ -321,7 +337,24 @@ internal static class InMemCompiler
             throw new InvalidOperationException("No C# files found in the specified project.");
         }
 
-        return (csFiles, references);
+        return new ProjectFileInfo(
+            csprojPath,
+            sourceCsprojPath,
+            csFiles,
+            references,
+            GetProjectProperty(csproj, ns, "OutputType"),
+            GetProjectProperty(csproj, ns, "AssemblyName"),
+            GetProjectProperty(csproj, ns, "StartupObject"),
+            GetProjectProperty(csproj, ns, "LangVersion"),
+            string.Equals(GetProjectProperty(csproj, ns, "AllowUnsafeBlocks"), "true", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string GetProjectProperty(XDocument csproj, XNamespace ns, string name)
+    {
+        return csproj
+            .Descendants(ns + name)
+            .Select(element => element.Value)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
     }
 
     private static void ObfuscateStringLiterals(IEnumerable<string> csFiles)
@@ -421,48 +454,20 @@ internal static class InMemCompiler
         Path.GetFullPath(Path.Combine(".", "compilation-errors.log"));
 
     private static bool Compile(
-        IEnumerable<string> csFiles,
-        IReadOnlyList<string> references,
-        string outputFolder)
+        ProjectFileInfo projectInfo,
+        string outputFolder,
+        out string outputPath)
     {
-        var metadataReferences = new List<MetadataReference>();
-
-        foreach (var reference in references)
-        {
-            var assemblies = Loaders.GAC.FindAssemblyForNamespace(reference);
-            if (assemblies != null)
-            {
-                metadataReferences.AddRange(assemblies.Select(assembly => MetadataReference.CreateFromFile(assembly.Location)));
-            }
-            else
-            {
-                AnsiConsole.WriteLine($"Assembly for namespace '{reference}' not found.");
-            }
-        }
-
-        var eventingAssemblies = Loaders.GAC.FindAssemblyForNamespace("System.Diagnostics.Eventing.Reader");
-        if (eventingAssemblies != null)
-        {
-            metadataReferences.AddRange(eventingAssemblies.Select(assembly => MetadataReference.CreateFromFile(assembly.Location)));
-        }
-
-        var options = new CSharpCompilationOptions(
-            OutputKind.ConsoleApplication,
-            optimizationLevel: OptimizationLevel.Release,
-            allowUnsafe: false);
-
-        // Ensure common framework assemblies used by injected noise code are referenced explicitly.
-        var systemConfigurationAssembly = typeof(System.Configuration.ConfigurationElementCollection).Assembly.Location;
-        metadataReferences.Add(MetadataReference.CreateFromFile(systemConfigurationAssembly));
-        var certificatesAssembly = typeof(System.Security.Cryptography.X509Certificates.X509Certificate2).Assembly.Location;
-        metadataReferences.Add(MetadataReference.CreateFromFile(certificatesAssembly));
-
-        var compilation = CSharpCompilation.Create(Path.GetRandomFileName(), options: options);
-        var syntaxTrees = csFiles.ToDictionary(file => file, file => CSharpSyntaxTree.ParseText(File.ReadAllText(file)));
+        var metadataReferences = ProjectReferenceResolver.BuildMetadataReferences(projectInfo);
+        var parseOptions = projectInfo.CreateParseOptions();
+        var compilation = CSharpCompilation.Create(projectInfo.AssemblyName, options: projectInfo.CreateCompilationOptions());
+        var syntaxTrees = projectInfo.CsFiles.ToDictionary(
+            file => file,
+            file => CSharpSyntaxTree.ParseText(File.ReadAllText(file), parseOptions, file));
         compilation = compilation.AddSyntaxTrees(syntaxTrees.Values);
         compilation = compilation.AddReferences(metadataReferences);
 
-        var outputPath = Path.Combine(outputFolder, "Output.exe");
+        outputPath = Path.Combine(outputFolder, projectInfo.OutputFileName);
 
         Directory.CreateDirectory(outputFolder);
 
@@ -490,7 +495,11 @@ internal static class InMemCompiler
         }
 
         File.WriteAllBytes(outputPath, ms.ToArray());
-        Assembly.Load(ms.ToArray()).EntryPoint?.Invoke(null, new object[] { new[] { "--help" } });
+        if (projectInfo.ShouldInvokeEntryPoint)
+        {
+            Assembly.Load(ms.ToArray()).EntryPoint?.Invoke(null, new object[] { new[] { "--help" } });
+        }
+
         return true;
     }
 }
@@ -504,12 +513,16 @@ public sealed class ObfuscationSettings : CommandSettings
     [CommandOption("--output <PATH>", isRequired: true)]
     [Description("Directory where the copied and obfuscated project is written.")]
     public string Output { get; set; }
+
+    [CommandOption("--out-assignment-methods")]
+    [Description("Rewrite safe local assignments through generated helper methods with out parameters.")]
+    public bool OutAssignmentMethods { get; set; }
 }
 
 public sealed class ObfuscationCommand : Command<ObfuscationSettings>
 {
     protected override int Execute(CommandContext context, ObfuscationSettings settings, CancellationToken cancellationToken)
     {
-        return InMemCompiler.Run(settings.Source, settings.Output);
+        return InMemCompiler.Run(settings.Source, settings.Output, settings.OutAssignmentMethods);
     }
 }

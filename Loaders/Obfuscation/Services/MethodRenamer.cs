@@ -12,11 +12,16 @@ namespace Loaders.Obfuscation.Services
 {
     internal static class MethodRenamer
     {
-        public static IReadOnlyDictionary<string, string> CollectMethodMap(IReadOnlyCollection<string> filePaths)
+        public static IReadOnlyDictionary<string, string> CollectMethodMap(
+            IReadOnlyCollection<string> filePaths,
+            bool includeDerivedPrivateStaticMethods = false,
+            bool skipOutAssignmentHelpers = false)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
 
-            var collector = new Loaders.Obfuscation.Rewriters.MethodCollectionRewriter();
+            var collector = new Loaders.Obfuscation.Rewriters.MethodCollectionRewriter(
+                includeDerivedPrivateStaticMethods,
+                skipOutAssignmentHelpers);
             foreach (var file in filePaths)
             {
                 var code = File.ReadAllText(file);
@@ -27,11 +32,16 @@ namespace Loaders.Obfuscation.Services
             return collector.GetMethodMap();
         }
 
-        public static IReadOnlyList<Loaders.Obfuscation.Rewriters.MethodRenameEntry> CollectMethodEntries(IReadOnlyCollection<string> filePaths)
+        public static IReadOnlyList<Loaders.Obfuscation.Rewriters.MethodRenameEntry> CollectMethodEntries(
+            IReadOnlyCollection<string> filePaths,
+            bool includeDerivedPrivateStaticMethods = false,
+            bool skipOutAssignmentHelpers = false)
         {
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
 
-            var collector = new Loaders.Obfuscation.Rewriters.MethodCollectionRewriter();
+            var collector = new Loaders.Obfuscation.Rewriters.MethodCollectionRewriter(
+                includeDerivedPrivateStaticMethods,
+                skipOutAssignmentHelpers);
             foreach (var file in filePaths)
             {
                 var code = File.ReadAllText(file);
@@ -43,7 +53,11 @@ namespace Loaders.Obfuscation.Services
         }
 
         // Refactored: rename strictly by pre-filtered entries, keeping logic minimal.
-        public static void RenameMethods(IReadOnlyDictionary<string, string> methodMap, IReadOnlyCollection<string> filePaths)
+        public static void RenameMethods(
+            IReadOnlyDictionary<string, string> methodMap,
+            IReadOnlyCollection<string> filePaths,
+            bool includeDerivedPrivateStaticMethods = false,
+            bool skipOutAssignmentHelpers = false)
         {
             if (methodMap == null) throw new ArgumentNullException(nameof(methodMap));
             if (filePaths == null) throw new ArgumentNullException(nameof(filePaths));
@@ -52,7 +66,10 @@ namespace Loaders.Obfuscation.Services
             var project = CreateProject(workspace, filePaths);
             var solution = project.Solution;
 
-            var entries = CollectMethodEntries(filePaths);
+            var entries = CollectMethodEntries(
+                filePaths,
+                includeDerivedPrivateStaticMethods,
+                skipOutAssignmentHelpers);
 
             foreach (var entry in entries)
             {

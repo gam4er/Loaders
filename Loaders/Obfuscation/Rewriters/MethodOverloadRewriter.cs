@@ -25,6 +25,7 @@ namespace Loaders.Obfuscation.Rewriters
                 .Where(method => method.ExpressionBody == null)
                 .Where(method => !method.Modifiers.Any(SyntaxKind.AbstractKeyword))
                 .Where(method => !HasDllImportAttribute(method))
+                .Where(method => !IsExtensionMethod(method))
                 .Where(method => !method.ParameterList.Parameters.Any(parameter => parameter.Default != null))
                 .Where(method => !IsEntryPoint(method))
                 .ToList();
@@ -53,6 +54,11 @@ namespace Loaders.Obfuscation.Rewriters
             return string.Equals(method.Identifier.Text, "Main", StringComparison.Ordinal);
         }
 
+        private static bool IsExtensionMethod(MethodDeclarationSyntax method)
+        {
+            return method.ParameterList.Parameters.FirstOrDefault()?.Modifiers.Any(SyntaxKind.ThisKeyword) == true;
+        }
+
         private bool MethodWithSameSignatureExists(ClassDeclarationSyntax classDeclaration, MethodDeclarationSyntax method)
         {
             string methodName = method.Identifier.Text;
@@ -74,7 +80,7 @@ namespace Loaders.Obfuscation.Rewriters
             var newParameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(randomParameterName))
                 .WithType(SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword)));
 
-            var newParameterList = method.ParameterList.AddParameters(newParameter);
+            var newParameterList = method.ParameterList.WithParameters(method.ParameterList.Parameters.Insert(0, newParameter));
             string randomInvocationCode = RandomMethodInvoker.RandomMethod();
             var randomInvocationStatement = SyntaxFactory.ParseStatement(randomInvocationCode);
 
