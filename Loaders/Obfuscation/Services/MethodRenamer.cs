@@ -207,6 +207,8 @@ namespace Loaders.Obfuscation.Services
                 MetadataReference.CreateFromFile(typeof(System.Xml.Linq.XDocument).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(System.Configuration.ConfigurationElementCollection).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(Microsoft.Win32.RegistryHive).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.IO.Compression.GZipStream).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Numerics.BigInteger).Assembly.Location),
             };
 
             // Try to locate a .csproj near the provided file paths and read its <Reference Include="..."> entries
