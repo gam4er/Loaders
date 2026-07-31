@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Loaders.Obfuscation.Rewriters;
+using Loaders.Obfuscation.Utilities;
 
 namespace Loaders.Obfuscation.Services
 {
@@ -37,13 +38,12 @@ namespace Loaders.Obfuscation.Services
         /// Obfuscates string literals in the syntax tree, replacing them
         /// with calls to obfuscation methods.
         /// </summary>
-        public static SyntaxTree ObfuscateStrings(SyntaxTree syntaxTree)
+        public static SyntaxTree ObfuscateStrings(SyntaxTree syntaxTree, StringObfuscationStrategy? strategy)
         {
-            // First, rewrite interpolated strings into concatenations with obfuscated literal segments.
-            var step1Root = new InterpolatedStringObfuscator().Visit(syntaxTree.GetRoot());
+            // Plain literals go first so generated decoder payloads are not visited again.
+            var step1Root = new StringLiteralObfuscator(strategy).Visit(syntaxTree.GetRoot());
 
-            // Then, run the literal obfuscator to transform remaining plain string literals.
-            var rewriter = new StringLiteralObfuscator();
+            var rewriter = new InterpolatedStringObfuscator(strategy);
             var newRoot = rewriter.Visit(step1Root).NormalizeWhitespace();
             return syntaxTree.WithRootAndOptions(newRoot, syntaxTree.Options);
         }

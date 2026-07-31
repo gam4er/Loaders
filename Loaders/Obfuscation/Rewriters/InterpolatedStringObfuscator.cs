@@ -1,5 +1,5 @@
-using System;
-using System.Linq;
+using System.Collections.Generic;
+using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -8,49 +8,92 @@ using Loaders.Obfuscation.Utilities;
 namespace Loaders.Obfuscation.Rewriters
 {
     /// <summary>
-    /// Rewrites interpolated strings ($"...") by reconstructing them via string.Concat
-    /// using obfuscated literal segments and original interpolations.
+    /// Rewrites interpolated strings ($"...") through obfuscated composite
+    /// format strings while preserving interpolation alignment and format clauses.
     /// </summary>
     internal sealed class InterpolatedStringObfuscator : CSharpSyntaxRewriter
     {
+        private readonly StringObfuscationStrategy? _strategy;
+
+        public InterpolatedStringObfuscator(StringObfuscationStrategy? strategy)
+        {
+            _strategy = strategy;
+        }
+
         public override SyntaxNode VisitInterpolatedStringExpression(InterpolatedStringExpressionSyntax node)
         {
-            // If no interpolation parts, let base literal obfuscator handle it.
-            if (!node.Contents.Any(c => c is InterpolationSyntax))
+            if (StringObfuscationContext.IsExcludedContext(node))
             {
                 return base.VisitInterpolatedStringExpression(node);
             }
 
-            // Build a list of expressions: obfuscated literal segments and visited interpolations
-            var parts = node.Contents.Select(content =>
+            var formatBuilder = new StringBuilder();
+            var interpolationArguments = new List<ArgumentSyntax>();
+
+            foreach (var content in node.Contents)
             {
                 if (content is InterpolatedStringTextSyntax text)
                 {
-                    var literalText = text.TextToken.ValueText;
-                    var decodeExpr = StringObfuscationUtil.BuildDecodeExpression(literalText);
-                    return (ExpressionSyntax)decodeExpr;
+                    formatBuilder.Append(text.TextToken.ValueText);
+                    continue;
                 }
 
                 if (content is InterpolationSyntax interpolation)
                 {
-                    // Visit the interpolation expression to allow other rewriters to run
-                    var visitedExpr = (ExpressionSyntax)Visit(interpolation.Expression);
-                    return visitedExpr;
+                    var argumentIndex = interpolationArguments.Count;
+                    formatBuilder.Append(BuildFormatItem(argumentIndex, interpolation));
+                    interpolationArguments.Add(SyntaxFactory.Argument((ExpressionSyntax)Visit(interpolation.Expression)));
                 }
+            }
 
-                return SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(""));
-            }).ToArray();
+            var formatExpression = BuildDecodeExpression(formatBuilder.ToString());
+            if (interpolationArguments.Count == 0)
+            {
+                return formatExpression.WithTriviaFrom(node);
+            }
 
-            // string.Concat(part1, part2, ...)
-            var argList = SyntaxFactory.SeparatedList(parts.Select(SyntaxFactory.Argument));
-            var concatCall = SyntaxFactory.InvocationExpression(
+            var arguments = new List<ArgumentSyntax>
+            {
+                SyntaxFactory.Argument(SyntaxFactory.ParseExpression("System.Globalization.CultureInfo.CurrentCulture")),
+                SyntaxFactory.Argument(formatExpression)
+            };
+            arguments.AddRange(interpolationArguments);
+
+            var formatCall = SyntaxFactory.InvocationExpression(
                 SyntaxFactory.MemberAccessExpression(
                     SyntaxKind.SimpleMemberAccessExpression,
-                    SyntaxFactory.IdentifierName("string"),
-                    SyntaxFactory.IdentifierName("Concat")))
-                .WithArgumentList(SyntaxFactory.ArgumentList(argList));
+                    SyntaxFactory.ParseName("System.String"),
+                    SyntaxFactory.IdentifierName("Format")))
+                .WithArgumentList(SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(arguments)));
 
-            return concatCall.WithTriviaFrom(node);
+            return formatCall.WithTriviaFrom(node);
         }
+
+        private ExpressionSyntax BuildDecodeExpression(string plainText)
+        {
+            return _strategy.HasValue
+                ? StringObfuscationUtil.BuildDecodeExpression(plainText, _strategy.Value)
+                : StringObfuscationUtil.BuildDecodeExpression(plainText);
+        }
+
+        private static string BuildFormatItem(int argumentIndex, InterpolationSyntax interpolation)
+        {
+            var builder = new StringBuilder();
+            builder.Append('{');
+            builder.Append(argumentIndex);
+            if (interpolation.AlignmentClause != null)
+            {
+                builder.Append(interpolation.AlignmentClause.ToString());
+            }
+
+            if (interpolation.FormatClause != null)
+            {
+                builder.Append(interpolation.FormatClause.ToString());
+            }
+
+            builder.Append('}');
+            return builder.ToString();
+        }
+
     }
 }

@@ -28,7 +28,7 @@ flowchart LR
 
 - **PrepareOutputProject**: copy the source project into an isolated folder.
 - **LoadProject**: parse the csproj to collect C# files, assembly references, output type, language version and unsafe settings.
-- **String obfuscation**: remove comments and rewrite string literals.
+- **String obfuscation**: remove comments and rewrite string literals with automatic or explicit decoder strategies.
 - **Overload injection**: add harmless method overloads to increase control-flow noise; extension methods are skipped.
 - **Out-assignment methods**: optional `--out-assignment-methods` pass that lifts safe local initializers into generated helper methods with `out var`.
 - **Semantic class or extended renaming**: default mode renames classes/methods; `--rename-extended-symbols` widens this to namespaces, types, members, parameters and locals.
@@ -87,6 +87,7 @@ Loaders.exe --source C:\path\to\source --output C:\path\to\output
   - `--out-assignment-methods`: rewrite safe local declarations such as `var dto = (ErrorDTO)result;` to generated helper calls with `out var`.
   - `--rename-extended-symbols`: enable the wider semantic rename scope for namespaces, classes, structs, interfaces, enums, enum members, delegates, methods, properties, fields, events, parameters and locals.
   - `--BeLeo`: generate obfuscated names from the embedded plain-text War and Peace resource instead of the default `Microsoft` + hash pattern. This changes only the name provider; it does not widen rename scope by itself.
+  - `--string-obfuscation-strategy <STRATEGY>`: force one string decoder strategy; omit it for per-literal auto selection. Valid values are `XorBase64`, `LcgBase64`, `GZipBase64`, `GZipLcgBase64`, `HexReverseXor`, `DecimalDelta`, `Utf16DeltaArrays`, `ShuffledUtf16Triplets`, `InterleavedMaskPairs`, `AffineBase64`, `BytePermutation`, `UInt64Packing`, `GuidPacking`, `BigIntegerPacking`, and `JunkedBase64`.
 - The source directory must contain exactly one `.csproj` file.
 - Source and output directories must be separate; output is recreated for each run.
 - File-based stages display percentage progress. Roslyn symbol renaming and compilation display a live status.

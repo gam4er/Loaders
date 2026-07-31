@@ -7,7 +7,7 @@ using Loaders.Obfuscation.Utilities;
 namespace Loaders.Obfuscation.Rewriters
 {
     /// <summary>
-    /// Rewrites string literals to obfuscated XOR + Base64 decoding expressions.
+    /// Rewrites string literals to obfuscated decoding expressions.
     ///
     /// The transformation deliberately skips critical contexts such as
     /// attributes, const fields and DllImport signatures where literal
@@ -15,6 +15,13 @@ namespace Loaders.Obfuscation.Rewriters
     /// </summary>
     internal sealed class StringLiteralObfuscator : CSharpSyntaxRewriter
     {
+        private readonly StringObfuscationStrategy? _strategy;
+
+        public StringLiteralObfuscator(StringObfuscationStrategy? strategy)
+        {
+            _strategy = strategy;
+        }
+
         public override SyntaxNode VisitLiteralExpression(LiteralExpressionSyntax node)
         {
             if (!node.IsKind(SyntaxKind.StringLiteralExpression))
@@ -22,66 +29,113 @@ namespace Loaders.Obfuscation.Rewriters
                 return base.VisitLiteralExpression(node);
             }
 
-            if (IsExcludedContext(node))
+            if (StringObfuscationContext.IsExcludedContext(node))
             {
                 return base.VisitLiteralExpression(node);
             }
 
-            var decodeInvocation = StringObfuscationUtil.BuildDecodeExpression(node.Token.ValueText);
+            var decodeInvocation = _strategy.HasValue
+                ? StringObfuscationUtil.BuildDecodeExpression(node.Token.ValueText, _strategy.Value)
+                : StringObfuscationUtil.BuildDecodeExpression(node.Token.ValueText);
             return decodeInvocation.WithTriviaFrom(node);
         }
+    }
 
-        private static bool IsExcludedContext(LiteralExpressionSyntax node)
+    internal static class StringObfuscationContext
+    {
+        public static bool IsExcludedContext(ExpressionSyntax node)
         {
-            if (node.Parent is AttributeArgumentSyntax attrArgument)
+            if (node.Ancestors().Any(ancestor =>
+                    ancestor is AttributeArgumentSyntax ||
+                    ancestor is CaseSwitchLabelSyntax ||
+                    ancestor is ConstantPatternSyntax ||
+                    ancestor is GotoStatementSyntax))
             {
                 return true;
             }
 
-            if (node.Parent is AttributeArgumentSyntax attributeArgument &&
-                attributeArgument.Parent is AttributeArgumentListSyntax argumentList &&
-                argumentList.Parent is AttributeSyntax attribute &&
-                attribute.Name is QualifiedNameSyntax qualifiedName &&
-                qualifiedName.Left.ToString() == "global::System")
+            if (node.Ancestors().OfType<ParameterSyntax>().Any(parameter => parameter.Default?.Value == node))
             {
                 return true;
             }
 
-            if (node.Parent is EqualsValueClauseSyntax equalsValueClause &&
-                equalsValueClause.Parent is VariableDeclaratorSyntax variableDeclarator &&
-                variableDeclarator.Parent is VariableDeclarationSyntax variableDeclaration &&
-                ((variableDeclaration.Parent is FieldDeclarationSyntax fieldDeclaration &&
-                  fieldDeclaration.Modifiers.Any(SyntaxKind.ConstKeyword)) ||
-                 (variableDeclaration.Parent is LocalDeclarationStatementSyntax localDeclaration &&
-                  localDeclaration.Modifiers.Any(SyntaxKind.ConstKeyword))))
+            foreach (var declaration in node.Ancestors().OfType<VariableDeclarationSyntax>())
+            {
+                if (declaration.Parent is FieldDeclarationSyntax fieldDeclaration &&
+                    fieldDeclaration.Modifiers.Any(SyntaxKind.ConstKeyword))
+                {
+                    return true;
+                }
+
+                if (declaration.Parent is LocalDeclarationStatementSyntax localDeclaration &&
+                    localDeclaration.Modifiers.Any(SyntaxKind.ConstKeyword))
+                {
+                    return true;
+                }
+            }
+
+            if (IsInsideObviousExpressionTree(node))
             {
                 return true;
             }
 
-            if (node.Parent is EqualsValueClauseSyntax && node.Parent.Parent is ParameterSyntax)
-            {
-                return true;
-            }
-
-            if (node.Parent is ParameterSyntax parameterSyntax && parameterSyntax.Default != null && parameterSyntax.Default.Value == node)
-            {
-                return true;
-            }
-
-            if (node.Parent is CaseSwitchLabelSyntax)
-            {
-                return true;
-            }
-
-            if (node.Parent is AttributeArgumentSyntax dllImportArgument &&
-                dllImportArgument.Parent is AttributeArgumentListSyntax dllArgumentList &&
-                dllArgumentList.Parent is AttributeSyntax dllAttribute &&
-                dllAttribute.Name.ToString() == "DllImport")
+            if (IsFormattableStringTarget(node))
             {
                 return true;
             }
 
             return false;
+        }
+
+        private static bool IsInsideObviousExpressionTree(ExpressionSyntax node)
+        {
+            foreach (var lambda in node.Ancestors().OfType<LambdaExpressionSyntax>())
+            {
+                if (lambda.Ancestors().OfType<CastExpressionSyntax>().Any(cast => IsExpressionTreeType(cast.Type)))
+                {
+                    return true;
+                }
+
+                if (lambda.Ancestors().OfType<VariableDeclarationSyntax>().Any(declaration => IsExpressionTreeType(declaration.Type)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsFormattableStringTarget(ExpressionSyntax node)
+        {
+            var variableDeclaration = node.Ancestors().OfType<VariableDeclarationSyntax>().FirstOrDefault();
+            if (variableDeclaration != null && IsFormattableStringType(variableDeclaration.Type))
+            {
+                return true;
+            }
+
+            var castExpression = node.Ancestors().OfType<CastExpressionSyntax>().FirstOrDefault();
+            return castExpression != null && IsFormattableStringType(castExpression.Type);
+        }
+
+        private static bool IsExpressionTreeType(TypeSyntax type)
+        {
+            var text = RemoveWhitespace(type.ToString());
+            return text.Contains("Expression<") ||
+                   text.Contains("Expressions.Expression<");
+        }
+
+        private static bool IsFormattableStringType(TypeSyntax type)
+        {
+            var text = RemoveWhitespace(type.ToString());
+            return text == "FormattableString" ||
+                   text == "System.FormattableString" ||
+                   text == "IFormattable" ||
+                   text == "System.IFormattable";
+        }
+
+        private static string RemoveWhitespace(string value)
+        {
+            return new string(value.Where(c => !char.IsWhiteSpace(c)).ToArray());
         }
     }
 }

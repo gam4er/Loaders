@@ -105,6 +105,8 @@ namespace Loaders.Obfuscation.Services
                 MetadataReference.CreateFromFile(typeof(System.Xml.Linq.XDocument).Assembly.Location), // System.Xml.Linq
                 MetadataReference.CreateFromFile(typeof(System.Configuration.ConfigurationElementCollection).Assembly.Location), // System.Configuration
                 MetadataReference.CreateFromFile(typeof(Microsoft.Win32.RegistryHive).Assembly.Location), // Microsoft.Win32.Registry
+                MetadataReference.CreateFromFile(typeof(System.IO.Compression.GZipStream).Assembly.Location), // System.IO.Compression
+                MetadataReference.CreateFromFile(typeof(System.Numerics.BigInteger).Assembly.Location), // System.Numerics
             };
 
             var projectInfo = ProjectInfo.Create(

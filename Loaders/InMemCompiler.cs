@@ -75,7 +75,8 @@ internal static class InMemCompiler
         string outputFolder,
         bool outAssignmentMethods,
         bool renameExtendedSymbols,
-        bool beLeo)
+        bool beLeo,
+        StringObfuscationStrategy? stringObfuscationStrategy)
     {
         var normalizedSourceFolder = NormalizeDirectoryPath(sourceFolder);
         var normalizedOutputFolder = NormalizeDirectoryPath(outputFolder);
@@ -84,10 +85,11 @@ internal static class InMemCompiler
         var nameProvider = ObfuscatedNameGenerator.CreateProvider(beLeo);
 
         PrepareOutputProject(normalizedSourceFolder, normalizedOutputFolder);
+        EnsureStringDecoderReferences(Path.Combine(normalizedOutputFolder, projectFileName), stringObfuscationStrategy);
 
         var projectPaths = LoadProject(normalizedOutputFolder, normalizedSourceFolder, projectFileName);
 
-        ObfuscateStringLiterals(projectPaths.CsFiles);
+        ObfuscateStringLiterals(projectPaths.CsFiles, stringObfuscationStrategy);
         AddMethodOverloads(projectPaths.CsFiles);
 
         if (outAssignmentMethods)
@@ -267,6 +269,77 @@ internal static class InMemCompiler
         });
     }
 
+    private static void EnsureStringDecoderReferences(string csprojPath, StringObfuscationStrategy? strategy)
+    {
+        var requiredReferences = GetRequiredStringDecoderReferences(strategy).ToArray();
+        if (requiredReferences.Length == 0)
+        {
+            return;
+        }
+
+        var csproj = XDocument.Load(csprojPath);
+        var root = csproj.Root ?? throw new InvalidOperationException("Invalid csproj content");
+        var ns = root.Name.Namespace;
+        var existingReferences = new HashSet<string>(
+            root.Descendants(ns + "Reference")
+                .Select(reference => GetReferenceSimpleName(reference.Attribute("Include")?.Value)),
+            StringComparer.OrdinalIgnoreCase);
+
+        var itemGroup = root.Elements(ns + "ItemGroup")
+            .FirstOrDefault(group => group.Elements(ns + "Reference").Any());
+
+        if (itemGroup == null)
+        {
+            itemGroup = new XElement(ns + "ItemGroup");
+            root.Add(itemGroup);
+        }
+
+        var changed = false;
+        foreach (var referenceName in requiredReferences)
+        {
+            if (existingReferences.Contains(referenceName))
+            {
+                continue;
+            }
+
+            itemGroup.Add(new XElement(ns + "Reference", new XAttribute("Include", referenceName)));
+            changed = true;
+        }
+
+        if (changed)
+        {
+            csproj.Save(csprojPath);
+        }
+    }
+
+    private static IEnumerable<string> GetRequiredStringDecoderReferences(StringObfuscationStrategy? strategy)
+    {
+        if (!strategy.HasValue ||
+            strategy.Value == StringObfuscationStrategy.GZipBase64 ||
+            strategy.Value == StringObfuscationStrategy.GZipLcgBase64)
+        {
+            yield return "System.IO.Compression";
+        }
+
+        if (strategy == StringObfuscationStrategy.BigIntegerPacking)
+        {
+            yield return "System.Numerics";
+        }
+    }
+
+    private static string GetReferenceSimpleName(string include)
+    {
+        if (string.IsNullOrWhiteSpace(include))
+        {
+            return string.Empty;
+        }
+
+        var commaIndex = include.IndexOf(',');
+        return commaIndex >= 0
+            ? include.Substring(0, commaIndex).Trim()
+            : include.Trim();
+    }
+
     private static void RunStatus(string description, Action<StatusContext> action)
     {
         AnsiConsole.Status()
@@ -399,7 +472,7 @@ internal static class InMemCompiler
             .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
     }
 
-    private static void ObfuscateStringLiterals(IEnumerable<string> csFiles)
+    private static void ObfuscateStringLiterals(IEnumerable<string> csFiles, StringObfuscationStrategy? strategy)
     {
         RunFileProgress("Obfuscating strings", csFiles, csFile =>
         {
@@ -412,7 +485,7 @@ internal static class InMemCompiler
             var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
 
             syntaxTree = StringLiteralObfuscationService.RemoveCommentsAndEnsureUsings(syntaxTree);
-            syntaxTree = StringLiteralObfuscationService.ObfuscateStrings(syntaxTree);
+            syntaxTree = StringLiteralObfuscationService.ObfuscateStrings(syntaxTree, strategy);
 
             File.WriteAllText(csFile, syntaxTree.GetRoot().ToFullString());
         });
@@ -572,17 +645,51 @@ public sealed class ObfuscationSettings : CommandSettings
     [CommandOption("--BeLeo|--be-leo")]
     [Description("Generate obfuscated identifiers from the embedded War and Peace text.")]
     public bool BeLeo { get; set; }
+
+    [CommandOption("--string-obfuscation-strategy <STRATEGY>")]
+    [Description("String literal obfuscation strategy. Omit to choose automatically per literal.")]
+    public string StringObfuscationStrategy { get; set; }
 }
 
 public sealed class ObfuscationCommand : Command<ObfuscationSettings>
 {
     protected override int Execute(CommandContext context, ObfuscationSettings settings, CancellationToken cancellationToken)
     {
+        if (!TryParseStringObfuscationStrategy(settings.StringObfuscationStrategy, out var stringObfuscationStrategy))
+        {
+            var validValues = string.Join(", ", Enum.GetNames(typeof(StringObfuscationStrategy)));
+            AnsiConsole.MarkupLine("[red]Invalid --string-obfuscation-strategy value.[/]");
+            AnsiConsole.WriteLine($"Value: {settings.StringObfuscationStrategy}");
+            AnsiConsole.WriteLine($"Valid values: {validValues}");
+            return 1;
+        }
+
         return InMemCompiler.Run(
             settings.Source,
             settings.Output,
             settings.OutAssignmentMethods,
             settings.RenameExtendedSymbols,
-            settings.BeLeo);
+            settings.BeLeo,
+            stringObfuscationStrategy);
+    }
+
+    private static bool TryParseStringObfuscationStrategy(
+        string value,
+        out StringObfuscationStrategy? strategy)
+    {
+        strategy = null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+
+        if (Enum.TryParse(value.Trim(), true, out StringObfuscationStrategy parsed) &&
+            Enum.IsDefined(typeof(StringObfuscationStrategy), parsed))
+        {
+            strategy = parsed;
+            return true;
+        }
+
+        return false;
     }
 }

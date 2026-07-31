@@ -137,6 +137,8 @@ namespace Loaders.Obfuscation.Services
             yield return typeof(System.Net.Http.HttpClient).Assembly.Location;
             yield return typeof(System.Windows.Forms.Form).Assembly.Location;
             yield return typeof(Microsoft.Win32.RegistryHive).Assembly.Location;
+            yield return typeof(System.IO.Compression.GZipStream).Assembly.Location;
+            yield return typeof(System.Numerics.BigInteger).Assembly.Location;
         }
 
         private static bool TryResolveHintPath(ProjectFileInfo projectInfo, string hintPath, out string resolvedPath)
