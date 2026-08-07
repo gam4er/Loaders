@@ -79,7 +79,7 @@ internal static class InMemCompiler
         bool skipSymbolRenaming,
         bool renameExtendedSymbols,
         bool beLeo,
-        StringObfuscationStrategy? stringObfuscationStrategy)
+        StringObfuscationSelection stringObfuscationSelection)
     {
         var normalizedSourceFolder = NormalizeDirectoryPath(sourceFolder);
         var requestedOutputFolder = NormalizeDirectoryPath(outputFolder);
@@ -103,6 +103,7 @@ internal static class InMemCompiler
             $"Project identity: {projectIdentity.OldAssemblyName} -> {projectIdentity.NewAssemblyName}");
 
         var projectFileName = projectIdentity.GeneratedProjectFileName;
+        PatchGeneratedProjectBuildCompatibility(normalizedOutputFolder, projectFileName);
         var projectPaths = LoadProject(
             normalizedOutputFolder,
             normalizedSourceFolder,
@@ -110,7 +111,7 @@ internal static class InMemCompiler
             sourceProjectFileName);
 
         var stringObfuscationResult = ProjectStringObfuscator.ObfuscateProject(
-            new ProjectStringObfuscationRequest(projectPaths, nameProvider, stringObfuscationStrategy));
+            new ProjectStringObfuscationRequest(projectPaths, nameProvider, stringObfuscationSelection));
         WriteStringObfuscationMetrics(normalizedOutputFolder, stringObfuscationResult);
 
         projectPaths = LoadProject(
@@ -351,6 +352,89 @@ internal static class InMemCompiler
                string.Equals(directoryName, "TestResults", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static void PatchGeneratedProjectBuildCompatibility(string projectDirectory, string projectFileName)
+    {
+        var projectPath = Path.GetFullPath(Path.Combine(projectDirectory, projectFileName));
+        if (!File.Exists(projectPath))
+        {
+            return;
+        }
+
+        var project = XDocument.Load(projectPath);
+        var root = project.Root ?? throw new InvalidOperationException("Invalid project file.");
+        var ns = root.Name.Namespace;
+        var changed = false;
+
+        foreach (var propertyGroup in root.Elements(ns + "PropertyGroup"))
+        {
+            var treatsWarningsAsErrors = string.Equals(
+                propertyGroup.Element(ns + "TreatWarningsAsErrors")?.Value,
+                "true",
+                StringComparison.OrdinalIgnoreCase);
+            var nullableEnabled = string.Equals(
+                propertyGroup.Element(ns + "Nullable")?.Value,
+                "enable",
+                StringComparison.OrdinalIgnoreCase);
+            var hasNoWarn = propertyGroup.Element(ns + "NoWarn") != null;
+
+            if (treatsWarningsAsErrors || nullableEnabled || hasNoWarn)
+            {
+                changed |= EnsureNoWarn(propertyGroup, ns, NullableWarningsToSuppress);
+            }
+        }
+
+        if (changed)
+        {
+            project.Save(projectPath);
+        }
+    }
+
+    private static readonly string[] NullableWarningsToSuppress =
+    {
+        "CS8600",
+        "CS8601",
+        "CS8602",
+        "CS8603",
+        "CS8604",
+        "CS8605",
+        "CS8618",
+        "CS8620",
+        "CS8625",
+        "CS8629"
+    };
+
+    private static bool EnsureNoWarn(XElement propertyGroup, XNamespace ns, IEnumerable<string> warnings)
+    {
+        var noWarn = propertyGroup.Element(ns + "NoWarn");
+        if (noWarn == null)
+        {
+            noWarn = new XElement(ns + "NoWarn");
+            propertyGroup.Add(noWarn);
+        }
+
+        var existing = new HashSet<string>(
+            noWarn.Value
+                .Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(value => value.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        var changed = false;
+        foreach (var warning in warnings.Where(warning => !string.IsNullOrWhiteSpace(warning)))
+        {
+            if (existing.Add(warning.Trim()))
+            {
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            noWarn.Value = string.Join(",", existing.OrderBy(value => value, StringComparer.OrdinalIgnoreCase));
+        }
+
+        return changed;
+    }
+
     private static void WriteStringObfuscationMetrics(
         string outputFolder,
         ProjectStringObfuscationResult result)
@@ -377,6 +461,8 @@ internal static class InMemCompiler
             writer.WriteLine("GeneratedSourceBytes={0}", result.Statistics.GeneratedSourceBytes);
             writer.WriteLine("ResourceBytes={0}", result.Statistics.ResourceBytes);
             writer.WriteLine("ObfuscationMilliseconds={0}", result.Statistics.ObfuscationMilliseconds);
+            writer.WriteLine("StrategySelectionMode={0}", result.Statistics.StrategySelectionMode);
+            writer.WriteLine("ProjectStrategy={0}", result.Statistics.ProjectStrategy);
             writer.WriteLine("LoaderSourcePath={0}", result.LoaderSourcePath);
             writer.WriteLine("ResourcePath={0}", result.ResourcePath);
             writer.WriteLine("ManifestResourceName={0}", result.ManifestResourceName);
@@ -406,77 +492,6 @@ internal static class InMemCompiler
 
         AnsiConsole.WriteLine(
             $"String resource: {result.Statistics.RewrittenOccurrences} replacements, {result.Statistics.UniqueStrings} unique, {result.Statistics.ResourceBytes} bytes.");
-    }
-
-    private static void EnsureStringDecoderReferences(string csprojPath, StringObfuscationStrategy? strategy)
-    {
-        var requiredReferences = GetRequiredStringDecoderReferences(strategy).ToArray();
-        if (requiredReferences.Length == 0)
-        {
-            return;
-        }
-
-        var csproj = XDocument.Load(csprojPath);
-        var root = csproj.Root ?? throw new InvalidOperationException("Invalid csproj content");
-        var ns = root.Name.Namespace;
-        var existingReferences = new HashSet<string>(
-            root.Descendants(ns + "Reference")
-                .Select(reference => GetReferenceSimpleName(reference.Attribute("Include")?.Value)),
-            StringComparer.OrdinalIgnoreCase);
-
-        var itemGroup = root.Elements(ns + "ItemGroup")
-            .FirstOrDefault(group => group.Elements(ns + "Reference").Any());
-
-        if (itemGroup == null)
-        {
-            itemGroup = new XElement(ns + "ItemGroup");
-            root.Add(itemGroup);
-        }
-
-        var changed = false;
-        foreach (var referenceName in requiredReferences)
-        {
-            if (existingReferences.Contains(referenceName))
-            {
-                continue;
-            }
-
-            itemGroup.Add(new XElement(ns + "Reference", new XAttribute("Include", referenceName)));
-            changed = true;
-        }
-
-        if (changed)
-        {
-            csproj.Save(csprojPath);
-        }
-    }
-
-    private static IEnumerable<string> GetRequiredStringDecoderReferences(StringObfuscationStrategy? strategy)
-    {
-        if (!strategy.HasValue ||
-            strategy.Value == StringObfuscationStrategy.GZipBase64 ||
-            strategy.Value == StringObfuscationStrategy.GZipLcgBase64)
-        {
-            yield return "System.IO.Compression";
-        }
-
-        if (strategy == StringObfuscationStrategy.BigIntegerPacking)
-        {
-            yield return "System.Numerics";
-        }
-    }
-
-    private static string GetReferenceSimpleName(string include)
-    {
-        if (string.IsNullOrWhiteSpace(include))
-        {
-            return string.Empty;
-        }
-
-        var commaIndex = include.IndexOf(',');
-        return commaIndex >= 0
-            ? include.Substring(0, commaIndex).Trim()
-            : include.Trim();
     }
 
     private static void RunStatus(string description, Action<StatusContext> action)
@@ -900,7 +915,7 @@ public sealed class ObfuscationSettings : CommandSettings
     public bool BeLeo { get; set; }
 
     [CommandOption("--string-obfuscation-strategy <STRATEGY>")]
-    [Description("String literal obfuscation strategy. Omit to choose automatically per literal.")]
+    [Description("String literal obfuscation strategy. Omit to choose one random strategy per project; use random to choose per string.")]
     public string StringObfuscationStrategy { get; set; }
 }
 
@@ -908,9 +923,9 @@ public sealed class ObfuscationCommand : Command<ObfuscationSettings>
 {
     protected override int Execute(CommandContext context, ObfuscationSettings settings, CancellationToken cancellationToken)
     {
-        if (!TryParseStringObfuscationStrategy(settings.StringObfuscationStrategy, out var stringObfuscationStrategy))
+        if (!TryParseStringObfuscationSelection(settings.StringObfuscationStrategy, out var stringObfuscationSelection))
         {
-            var validValues = string.Join(", ", Enum.GetNames(typeof(StringObfuscationStrategy)));
+            var validValues = "random, " + string.Join(", ", Enum.GetNames(typeof(StringObfuscationStrategy)));
             AnsiConsole.MarkupLine("[red]Invalid --string-obfuscation-strategy value.[/]");
             AnsiConsole.WriteLine($"Value: {settings.StringObfuscationStrategy}");
             AnsiConsole.WriteLine($"Valid values: {validValues}");
@@ -924,23 +939,29 @@ public sealed class ObfuscationCommand : Command<ObfuscationSettings>
             settings.SkipSymbolRenaming,
             settings.RenameExtendedSymbols,
             settings.BeLeo,
-            stringObfuscationStrategy);
+            stringObfuscationSelection);
     }
 
-    private static bool TryParseStringObfuscationStrategy(
+    private static bool TryParseStringObfuscationSelection(
         string value,
-        out StringObfuscationStrategy? strategy)
+        out StringObfuscationSelection selection)
     {
-        strategy = null;
+        selection = StringObfuscationSelection.ProjectRandomDefault;
         if (string.IsNullOrWhiteSpace(value))
         {
+            return true;
+        }
+
+        if (string.Equals(value.Trim(), "random", StringComparison.OrdinalIgnoreCase))
+        {
+            selection = StringObfuscationSelection.PerStringRandom;
             return true;
         }
 
         if (Enum.TryParse(value.Trim(), true, out StringObfuscationStrategy parsed) &&
             Enum.IsDefined(typeof(StringObfuscationStrategy), parsed))
         {
-            strategy = parsed;
+            selection = StringObfuscationSelection.Fixed(parsed);
             return true;
         }
 

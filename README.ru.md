@@ -33,6 +33,7 @@ flowchart TD
 - Входной проект сначала копируется; Loaders не обфусцирует исходные файлы in place.
 - Если запрошенный output-каталог уже существует, Loaders выбирает conflict-safe суффикс вместо удаления старых артефактов.
 - C# string literals обрабатываются одним project-wide orchestration pass. Eligible literals дедуплицируются, кодируются в один binary embedded resource и переписываются в компактные вызовы generated loader.
+- По умолчанию одна string codec strategy выбирается случайно один раз на проект. Передайте `--string-obfuscation-strategy random`, чтобы выбирать codec отдельно для каждой уникальной строки, или concrete strategy name, чтобы принудительно использовать один codec.
 - Compile-time constant contexts, generated files, `bin`, `obj` и generated artifacts самого обфускатора пропускаются.
 - Generated project получает loader `.g.cs`, binary `.bin` resource, точный `LogicalName` metadata и runtime references для codec, если они нужны.
 - Direct Roslyn `Emit` получает тот же loader syntax tree и manifest resource bytes.
@@ -51,9 +52,9 @@ Loaders.exe --source C:\path\to\source --output C:\path\to\output [options]
 | `--rename-extended-symbols` | Включить более широкий Roslyn semantic rename для namespaces, types, members, parameters и locals. |
 | `--skip-symbol-renaming` | Выполнить project preparation, string obfuscation и compilation без namespace/type/member renaming. Полезно для изоляции string-resource validation на больших проектах. |
 | `--BeLeo`, `--be-leo` | Генерировать obfuscated identifiers из embedded текста War and Peace вместо default `Microsoft` + hash pattern. |
-| `--string-obfuscation-strategy <STRATEGY>` | Принудительно выбрать одну string codec strategy; если опция не задана, стратегия выбирается автоматически per literal. |
+| `--string-obfuscation-strategy <STRATEGY>` | Принудительно выбрать одну string codec strategy; если опция не задана, одна случайная strategy выбирается на весь проект; `random` включает выбор per unique string. |
 
-Поддерживаемые string strategies: `XorBase64`, `LcgBase64`, `GZipBase64`, `GZipLcgBase64`, `HexReverseXor`, `DecimalDelta`, `Utf16DeltaArrays`, `ShuffledUtf16Triplets`, `InterleavedMaskPairs`, `AffineBase64`, `BytePermutation`, `UInt64Packing`, `GuidPacking`, `BigIntegerPacking`, `JunkedBase64`.
+Поддерживаемые значения string strategy: `random`, `XorBase64`, `LcgBase64`, `GZipBase64`, `GZipLcgBase64`, `HexReverseXor`, `DecimalDelta`, `Utf16DeltaArrays`, `ShuffledUtf16Triplets`, `InterleavedMaskPairs`, `AffineBase64`, `BytePermutation`, `UInt64Packing`, `GuidPacking`, `BigIntegerPacking`, `JunkedBase64`.
 
 ## Выходные Артефакты
 

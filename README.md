@@ -33,6 +33,7 @@ More diagrams are in [docs/protector-pipeline.md](docs/protector-pipeline.md) an
 - The input project is copied first; Loaders does not obfuscate source files in place.
 - If the requested output directory already exists, Loaders chooses a conflict-safe suffix instead of deleting old artifacts.
 - C# string literals are handled by one project-wide orchestration pass. Eligible literals are deduplicated, encoded into one binary embedded resource, and rewritten to compact generated loader calls.
+- By default, one string codec strategy is chosen randomly once per project. Pass `--string-obfuscation-strategy random` to choose codecs independently per unique string, or pass a concrete strategy name to force one codec.
 - Compile-time constant contexts, generated files, `bin`, `obj`, and obfuscator-generated artifacts are skipped.
 - The generated project receives the loader `.g.cs`, the binary `.bin` resource, exact `LogicalName` metadata, and codec runtime references when needed.
 - Direct Roslyn `Emit` receives the same loader syntax tree and manifest resource bytes.
@@ -51,9 +52,9 @@ Loaders.exe --source C:\path\to\source --output C:\path\to\output [options]
 | `--rename-extended-symbols` | Use wider Roslyn semantic renaming for namespaces, types, members, parameters, and locals. |
 | `--skip-symbol-renaming` | Run project preparation, string obfuscation, and compilation without namespace/type/member renaming. Useful for isolating string-resource validation on large projects. |
 | `--BeLeo`, `--be-leo` | Generate obfuscated identifiers from the embedded War and Peace text instead of the default `Microsoft` + hash pattern. |
-| `--string-obfuscation-strategy <STRATEGY>` | Force one string codec strategy; omit it for per-literal automatic selection. |
+| `--string-obfuscation-strategy <STRATEGY>` | Force one string codec strategy; omit it to choose one random strategy per project, or use `random` to choose per unique string. |
 
-Supported string strategies: `XorBase64`, `LcgBase64`, `GZipBase64`, `GZipLcgBase64`, `HexReverseXor`, `DecimalDelta`, `Utf16DeltaArrays`, `ShuffledUtf16Triplets`, `InterleavedMaskPairs`, `AffineBase64`, `BytePermutation`, `UInt64Packing`, `GuidPacking`, `BigIntegerPacking`, `JunkedBase64`.
+Supported string strategy values: `random`, `XorBase64`, `LcgBase64`, `GZipBase64`, `GZipLcgBase64`, `HexReverseXor`, `DecimalDelta`, `Utf16DeltaArrays`, `ShuffledUtf16Triplets`, `InterleavedMaskPairs`, `AffineBase64`, `BytePermutation`, `UInt64Packing`, `GuidPacking`, `BigIntegerPacking`, `JunkedBase64`.
 
 ## Outputs
 

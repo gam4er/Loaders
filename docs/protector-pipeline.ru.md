@@ -89,7 +89,7 @@ flowchart LR
 | `--rename-extended-symbols` | Да | Optional | Extended semantic flow | Более широкий scope; сильно зависит от полных metadata references. |
 | `--skip-symbol-renaming` | Да | Optional | Нет | Лучший режим для отдельной проверки project-wide string resource behavior. |
 | `--BeLeo` | Да | Optional | Зависит от других флагов | Меняет только name provider. |
-| `--string-obfuscation-strategy <STRATEGY>` | Да | Optional | Зависит от других флагов | Принудительно выбирает один string codec вместо automatic per-literal selection. |
+| `--string-obfuscation-strategy <STRATEGY>` | Да | Optional | Зависит от других флагов | Concrete value принудительно выбирает один string codec; без опции выбирается один random codec на проект; `random` выбирает per unique string. |
 
 ## Сравнение Rename Scope
 

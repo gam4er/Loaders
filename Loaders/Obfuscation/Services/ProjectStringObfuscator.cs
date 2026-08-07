@@ -35,8 +35,10 @@ namespace Loaders.Obfuscation.Services
             {
                 var context = new StringResourceBuildContext(
                     codecs,
-                    request.Strategy,
+                    request.Selection,
                     random);
+                statistics.StrategySelectionMode = context.SelectionMode.ToString();
+                statistics.ProjectStrategy = context.ProjectStrategy?.ToString() ?? string.Empty;
 
                 var parseOptions = projectInfo.CreateParseOptions();
                 var syntaxTrees = projectInfo.CsFiles.ToDictionary(
@@ -309,7 +311,8 @@ namespace Loaders.Obfuscation.Services
     internal sealed class StringResourceBuildContext
     {
         private readonly IReadOnlyList<IStringPayloadCodec> _codecs;
-        private readonly StringObfuscationStrategy? _strategy;
+        private readonly StringObfuscationSelection _selection;
+        private readonly StringObfuscationStrategy? _projectStrategy;
         private readonly IStringObfuscationRandom _random;
         private readonly Dictionary<string, Registration> _registrations =
             new Dictionary<string, Registration>(StringComparer.Ordinal);
@@ -318,17 +321,20 @@ namespace Loaders.Obfuscation.Services
 
         public StringResourceBuildContext(
             IReadOnlyList<IStringPayloadCodec> codecs,
-            StringObfuscationStrategy? strategy,
+            StringObfuscationSelection selection,
             IStringObfuscationRandom random)
         {
             _codecs = codecs ?? throw new ArgumentNullException(nameof(codecs));
-            _strategy = strategy;
+            _selection = selection ?? StringObfuscationSelection.ProjectRandomDefault;
             _random = random ?? throw new ArgumentNullException(nameof(random));
+            _projectStrategy = ResolveProjectStrategy(_codecs, _selection, _random);
             GeneratedNamespace = "N" + RandomHex(8);
             GeneratedTypeName = "T" + RandomHex(8);
             ManifestResourceName = "__m." + RandomHex(16);
         }
 
+        public StringObfuscationSelectionMode SelectionMode => _selection.Mode;
+        public StringObfuscationStrategy? ProjectStrategy => _projectStrategy;
         public string GeneratedNamespace { get; }
         public string GeneratedTypeName { get; }
         public string ManifestResourceName { get; }
@@ -343,7 +349,7 @@ namespace Loaders.Obfuscation.Services
             if (!_registrations.TryGetValue(value, out var registration))
             {
                 var utf16Bytes = ProjectStringObfuscator.GetUtf16CodeUnitBytes(value);
-                var candidates = StringPayloadCodecCatalog.SelectCandidates(_codecs, value, utf16Bytes, _strategy);
+                var candidates = StringPayloadCodecCatalog.SelectCandidates(_codecs, value, utf16Bytes, _projectStrategy);
                 if (candidates.Count == 0)
                 {
                     throw new InvalidOperationException("No string payload codec can encode the literal.");
@@ -370,6 +376,41 @@ namespace Loaders.Obfuscation.Services
             return SyntaxFactory.ParseExpression(
                 "global::" + GeneratedNamespace + "." + GeneratedTypeName + ".Get(unchecked((int)0x" +
                 unchecked((uint)registration.Token).ToString("X8", CultureInfo.InvariantCulture) + "))");
+        }
+
+        private static StringObfuscationStrategy? ResolveProjectStrategy(
+            IReadOnlyList<IStringPayloadCodec> codecs,
+            StringObfuscationSelection selection,
+            IStringObfuscationRandom random)
+        {
+            switch (selection.Mode)
+            {
+                case StringObfuscationSelectionMode.PerStringRandom:
+                    return null;
+
+                case StringObfuscationSelectionMode.Fixed:
+                    if (!selection.Strategy.HasValue)
+                    {
+                        throw new InvalidOperationException("Fixed string obfuscation selection requires a strategy.");
+                    }
+
+                    return selection.Strategy.Value;
+
+                case StringObfuscationSelectionMode.ProjectRandomDefault:
+                    var strategies = codecs
+                        .Select(codec => codec.Strategy)
+                        .Distinct()
+                        .ToArray();
+                    if (strategies.Length == 0)
+                    {
+                        throw new InvalidOperationException("No string payload codecs are available.");
+                    }
+
+                    return strategies[random.NextInt(0, strategies.Length)];
+
+                default:
+                    throw new InvalidOperationException("Unsupported string obfuscation selection mode.");
+            }
         }
 
         public StringResourceArtifact FinalizeArtifact(string projectDirectory)

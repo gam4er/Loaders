@@ -367,3 +367,5 @@ FodyWeavers.xsd
 *.zip
 *.bin
 /Presentation
+/Loaders/.codex-worklog
+WORKLOG.md

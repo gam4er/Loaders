@@ -31,6 +31,38 @@ namespace Loaders.Obfuscation.Utilities
         JunkedBase64
     }
 
+    internal enum StringObfuscationSelectionMode
+    {
+        ProjectRandomDefault,
+        Fixed,
+        PerStringRandom
+    }
+
+    internal sealed class StringObfuscationSelection
+    {
+        private StringObfuscationSelection(
+            StringObfuscationSelectionMode mode,
+            StringObfuscationStrategy? strategy)
+        {
+            Mode = mode;
+            Strategy = strategy;
+        }
+
+        public static StringObfuscationSelection ProjectRandomDefault { get; } =
+            new StringObfuscationSelection(StringObfuscationSelectionMode.ProjectRandomDefault, null);
+
+        public static StringObfuscationSelection PerStringRandom { get; } =
+            new StringObfuscationSelection(StringObfuscationSelectionMode.PerStringRandom, null);
+
+        public static StringObfuscationSelection Fixed(StringObfuscationStrategy strategy)
+        {
+            return new StringObfuscationSelection(StringObfuscationSelectionMode.Fixed, strategy);
+        }
+
+        public StringObfuscationSelectionMode Mode { get; }
+        public StringObfuscationStrategy? Strategy { get; }
+    }
+
     internal static class StringObfuscationUtil
     {
         private static readonly object RngLock = new object();

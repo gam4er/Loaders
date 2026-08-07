@@ -11,16 +11,16 @@ namespace Loaders.Obfuscation.Services
         public ProjectStringObfuscationRequest(
             ProjectFileInfo projectInfo,
             IObfuscatedNameProvider nameProvider,
-            StringObfuscationStrategy? strategy)
+            StringObfuscationSelection selection)
         {
             ProjectInfo = projectInfo ?? throw new ArgumentNullException(nameof(projectInfo));
             NameProvider = nameProvider ?? throw new ArgumentNullException(nameof(nameProvider));
-            Strategy = strategy;
+            Selection = selection ?? StringObfuscationSelection.ProjectRandomDefault;
         }
 
         public ProjectFileInfo ProjectInfo { get; }
         public IObfuscatedNameProvider NameProvider { get; }
-        public StringObfuscationStrategy? Strategy { get; }
+        public StringObfuscationSelection Selection { get; }
     }
 
     internal sealed class ProjectStringObfuscationResult
@@ -102,6 +102,8 @@ namespace Loaders.Obfuscation.Services
         public int GeneratedSourceBytes { get; set; }
         public int ResourceBytes { get; set; }
         public long ObfuscationMilliseconds { get; set; }
+        public string StrategySelectionMode { get; set; } = string.Empty;
+        public string ProjectStrategy { get; set; } = string.Empty;
 
         public IReadOnlyDictionary<string, int> SkippedByReason => _skippedByReason;
         public IReadOnlyDictionary<string, int> CodecCounts => _codecCounts;

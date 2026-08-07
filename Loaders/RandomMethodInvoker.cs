@@ -6,7 +6,6 @@ using System.Linq;
 using System.Management.Instrumentation;
 using System.Reflection;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Loaders
 {
@@ -104,7 +103,7 @@ namespace Loaders
                 }
                 else if (paramType == typeof(double) || paramType == typeof(double?))
                 {
-                    args.Add(_random.NextDouble().ToString("F2"));
+                    args.Add(_random.NextDouble().ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
                 }
                 else if (paramType == typeof(long) || paramType == typeof(long?))
                 {
@@ -112,7 +111,7 @@ namespace Loaders
                 }
                 else if (paramType == typeof(float) || paramType == typeof(float?))
                 {
-                    args.Add(((float)_random.NextDouble()).ToString("F2"));
+                    args.Add(((float)_random.NextDouble()).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "f");
                 }
                 else if (paramType == typeof(char) || paramType == typeof(char?))
                 {
@@ -144,12 +143,12 @@ namespace Loaders
                 }
                 else if (paramType == typeof(decimal) || paramType == typeof(decimal?))
                 {
-                    args.Add(((decimal)_random.NextDouble()).ToString("F2"));
+                    args.Add(((decimal)_random.NextDouble()).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "m");
                 }
                 else
                 {
                     // Fallback: use default(T) by emitting a cast expression in code.
-                    args.Add($"default({paramType.FullName})");
+                    args.Add($"default({GetCSharpTypeName(paramType)})");
                 }
             }
 
@@ -159,7 +158,7 @@ namespace Loaders
         private static string GenerateInvocationCode(Type type, string methodName, object[] arguments)
         {
             // Получаем полное имя типа и заменяем "+" на "."
-            string typeName = type.FullName.Replace('+', '.');
+            string typeName = GetCSharpTypeName(type);
 
             // Проверка на обобщенный тип
             if (type.IsGenericType)
@@ -171,7 +170,7 @@ namespace Loaders
                 var genericArgs = string.Join(", ", type.GetGenericArguments().Select(t =>
                 {
                     // Используем FullName для конкретных типов, иначе используем Name для параметров типа
-                    return t.FullName != null ? t.FullName.Replace('+', '.') : t.Name;
+                    return GetCSharpTypeName(t);
                 }));
 
                 // Формирование полного имени типа с обобщенными аргументами
@@ -183,22 +182,53 @@ namespace Loaders
             return $@"#pragma warning disable CS0618
 try
 {{
-    Task.Run(() =>
+    global::System.Threading.Tasks.Task.Run(() =>
     {{
         try
         {{
             {typeName} instance = new {typeName}();
             instance.{methodName}({args});
         }}
-        catch (Exception)
+        catch (global::System.Exception)
         {{
         }}
     }}).Start();
 }}
-catch (Exception)
+catch (global::System.Exception)
 {{
 }}
 #pragma warning restore CS0618";
+        }
+
+        private static string GetCSharpTypeName(Type type)
+        {
+            if (type == null)
+            {
+                return "object";
+            }
+
+            if (type.IsByRef)
+            {
+                type = type.GetElementType();
+            }
+
+            if (type == typeof(void))
+            {
+                return "void";
+            }
+
+            if (type.IsArray)
+            {
+                return GetCSharpTypeName(type.GetElementType()) + "[]";
+            }
+
+            var fullName = type.FullName;
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                return type.Name;
+            }
+
+            return "global::" + fullName.Replace('+', '.');
         }
 
         private static bool IsValidType(Type type)
@@ -218,6 +248,8 @@ catch (Exception)
             if (fullName.StartsWith("System.Net.HttpWebRequest", StringComparison.Ordinal) ||
                 fullName.StartsWith("System.Net.HttpWebResponse", StringComparison.Ordinal) ||
                 fullName.StartsWith("System.Net.HttpListener", StringComparison.Ordinal) ||
+                fullName.StartsWith("System.Configuration.", StringComparison.Ordinal) ||
+                fullName.IndexOf(".Configuration.", StringComparison.Ordinal) >= 0 ||
                 fullName.StartsWith("System.Net.Configuration.", StringComparison.Ordinal))
             {
                 return true;
