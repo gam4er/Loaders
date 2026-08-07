@@ -14,7 +14,9 @@ namespace Loaders.Obfuscation.Services
             string sourceProjectPath,
             IReadOnlyList<string> csFiles,
             IReadOnlyList<ProjectReferenceInfo> references,
+            IReadOnlyList<ProjectEmbeddedResourceInfo> embeddedResources,
             string outputType,
+            string rootNamespace,
             string assemblyName,
             string startupObject,
             string languageVersion,
@@ -25,8 +27,16 @@ namespace Loaders.Obfuscation.Services
             ProjectDirectory = System.IO.Path.GetDirectoryName(projectPath) ?? string.Empty;
             SourceProjectDirectory = System.IO.Path.GetDirectoryName(sourceProjectPath) ?? string.Empty;
             CsFiles = csFiles;
+            TransformableCsFiles = csFiles
+                .Where(GeneratedFileClassifier.IsTransformableSourceFile)
+                .ToArray();
+            GeneratedCsFiles = csFiles
+                .Where(GeneratedFileClassifier.IsGeneratedFile)
+                .ToArray();
             References = references;
+            EmbeddedResources = embeddedResources ?? Array.Empty<ProjectEmbeddedResourceInfo>();
             OutputType = string.IsNullOrWhiteSpace(outputType) ? "Exe" : outputType.Trim();
+            RootNamespace = rootNamespace?.Trim() ?? string.Empty;
             AssemblyName = string.IsNullOrWhiteSpace(assemblyName)
                 ? System.IO.Path.GetFileNameWithoutExtension(projectPath)
                 : assemblyName.Trim();
@@ -40,16 +50,20 @@ namespace Loaders.Obfuscation.Services
         public string ProjectDirectory { get; }
         public string SourceProjectDirectory { get; }
         public IReadOnlyList<string> CsFiles { get; }
+        public IReadOnlyList<string> TransformableCsFiles { get; }
+        public IReadOnlyList<string> GeneratedCsFiles { get; }
         public IReadOnlyList<ProjectReferenceInfo> References { get; }
+        public IReadOnlyList<ProjectEmbeddedResourceInfo> EmbeddedResources { get; }
         public string OutputType { get; }
+        public string RootNamespace { get; }
         public string AssemblyName { get; }
         public string StartupObject { get; }
         public string LanguageVersion { get; }
         public bool AllowUnsafeBlocks { get; }
 
         public string OutputFileName => OutputKind == OutputKind.DynamicallyLinkedLibrary
-            ? "Output.dll"
-            : "Output.exe";
+            ? AssemblyName + ".dll"
+            : AssemblyName + ".exe";
 
         public bool ShouldInvokeEntryPoint => OutputKind == OutputKind.ConsoleApplication;
 
@@ -183,5 +197,17 @@ namespace Loaders.Obfuscation.Services
                 }
             }
         }
+    }
+
+    internal sealed class ProjectEmbeddedResourceInfo
+    {
+        public ProjectEmbeddedResourceInfo(string include, string logicalName)
+        {
+            Include = include?.Trim() ?? string.Empty;
+            LogicalName = logicalName?.Trim() ?? string.Empty;
+        }
+
+        public string Include { get; }
+        public string LogicalName { get; }
     }
 }

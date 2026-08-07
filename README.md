@@ -1,111 +1,105 @@
 # Loaders
 
-Loaders is a .NET Framework 4.8 obfuscation pipeline: it copies a C# project to a working directory, applies obfuscation steps, then compiles and runs the obfuscated binary.
+[Russian version](README.ru.md)
+
+Loaders is a .NET Framework 4.8 source-level obfuscation pipeline for C# projects. It copies the input project into an isolated output directory, rewrites the copied sources, embeds one project-wide string resource, compiles the transformed project, and smoke-runs console outputs with `--help`.
 
 ## Pipeline
 
 ```mermaid
-flowchart LR
-    A["Prepare output project"] --> B["Load project metadata"]
-    B --> C["String obfuscation"]
-    C --> D["Method overloads"]
-    D --> E{"--out-assignment-methods?"}
-    E -- "yes" --> F["Out-assignment methods"]
-    E -- "no" --> G{"--rename-extended-symbols?"}
-    F --> G
-    G -- "yes" --> H["Namespace/type rename"]
-    G -- "no" --> I["Class rename"]
-    H --> J["Constructor fix"]
-    I --> J
-    J --> K{"--rename-extended-symbols?"}
-    K -- "yes" --> L["Member/parameter/local rename"]
-    K -- "no" --> M["Method rename"]
-    L --> N["Compile"]
-    M --> N
+flowchart TD
+    A["Validate source/output paths"] --> B["Choose conflict-safe output folder"]
+    B --> C["Copy source project"]
+    C --> D["Load project metadata"]
+    D --> E["Project-wide string resource pass"]
+    E --> F{"--out-assignment-methods?"}
+    F -- "yes" --> G["Rewrite safe assignments into out-helper calls"]
+    F -- "no" --> H
+    G --> H{"--skip-symbol-renaming?"}
+    H -- "yes" --> K["Compile direct Roslyn output"]
+    H -- "no" --> I{"--rename-extended-symbols?"}
+    I -- "yes" --> J["Semantic namespace/type/member/parameter/local rename"]
+    I -- "no" --> L["Default class/method rename and constructor fix-up"]
+    J --> K
+    L --> K
+    K --> M["Run console output with --help"]
 ```
 
-## Core process
+More diagrams are in [docs/protector-pipeline.md](docs/protector-pipeline.md) and [docs/string-resource-pipeline.md](docs/string-resource-pipeline.md).
 
-- **PrepareOutputProject**: copy the source project into an isolated folder.
-- **LoadProject**: parse the csproj to collect C# files, assembly references, output type, language version and unsafe settings.
-- **String obfuscation**: remove comments and rewrite string literals with automatic or explicit decoder strategies.
-- **Overload injection**: add harmless method overloads to increase control-flow noise; extension methods are skipped.
-- **Out-assignment methods**: optional `--out-assignment-methods` pass that lifts safe local initializers into generated helper methods with `out var`.
-- **Semantic class or extended renaming**: default mode renames classes/methods; `--rename-extended-symbols` widens this to namespaces, types, members, parameters and locals.
-- **Syntactic constructor fix-up**: adjust call sites that semantic renaming may miss.
-- **Compile**: build the obfuscated assembly in memory and run `--help` only for console executables.
+## Core Behavior
 
-## Semantic vs syntactic renaming
+- The source directory must contain exactly one `.csproj`.
+- The input project is copied first; Loaders does not obfuscate source files in place.
+- If the requested output directory already exists, Loaders chooses a conflict-safe suffix instead of deleting old artifacts.
+- C# string literals are handled by one project-wide orchestration pass. Eligible literals are deduplicated, encoded into one binary embedded resource, and rewritten to compact generated loader calls.
+- Compile-time constant contexts, generated files, `bin`, `obj`, and obfuscator-generated artifacts are skipped.
+- The generated project receives the loader `.g.cs`, the binary `.bin` resource, exact `LogicalName` metadata, and codec runtime references when needed.
+- Direct Roslyn `Emit` receives the same loader syntax tree and manifest resource bytes.
 
-- **Semantic**: operates on Roslyn `ISymbol`, updates usages (type refs, parameters, object creations) reliably. Requires accurate `MetadataReference`.
-- **Syntactic**: operates on syntax trees, faster but unaware of symbol binding; can miss or break edge cases.
+## CLI
 
-## Key components
+```text
+Loaders.exe --source C:\path\to\source --output C:\path\to\output [options]
+```
 
-- **`InMemCompiler`**: orchestrates the pipeline.
-- **`ClassRenamer`**: semantic class renamer via Roslyn.
-- **`MethodRenamer`**: semantic method renamer driven by `MethodRenameEntry`.
-- **`ExtendedSymbolRenameService`**: opt-in semantic rename for namespaces, types, members, parameters and locals.
-- **`OutAssignmentMethodService`**: opt-in local initializer to helper-method rewrite.
-- **`ObfuscatedNameGenerator`**: chooses the default hash provider or the BeLeo provider.
-- **`MethodCollectionRewriter`**: collects eligible methods, captures overload info.
-- **`SimpleConstructorRenameService`**: focused syntactic constructor pass.
-- **`StringLiteralObfuscationService`** and rewriters: string processing and comment removal.
-- **`Loaders.GAC`**: resolves assembly references from GAC.
+| Option | Meaning |
+| --- | --- |
+| `--source <PATH>` | Source directory containing exactly one C# project. |
+| `--output <PATH>` | Output root for the copied and transformed project. |
+| `--out-assignment-methods` | Rewrite safe local assignments through generated helper methods with `out` parameters. |
+| `--rename-extended-symbols` | Use wider Roslyn semantic renaming for namespaces, types, members, parameters, and locals. |
+| `--skip-symbol-renaming` | Run project preparation, string obfuscation, and compilation without namespace/type/member renaming. Useful for isolating string-resource validation on large projects. |
+| `--BeLeo`, `--be-leo` | Generate obfuscated identifiers from the embedded War and Peace text instead of the default `Microsoft` + hash pattern. |
+| `--string-obfuscation-strategy <STRATEGY>` | Force one string codec strategy; omit it for per-literal automatic selection. |
 
-## Best practices
+Supported string strategies: `XorBase64`, `LcgBase64`, `GZipBase64`, `GZipLcgBase64`, `HexReverseXor`, `DecimalDelta`, `Utf16DeltaArrays`, `ShuffledUtf16Triplets`, `InterleavedMaskPairs`, `AffineBase64`, `BytePermutation`, `UInt64Packing`, `GuidPacking`, `BigIntegerPacking`, `JunkedBase64`.
 
-- Run semantic renaming (classes/methods) before syntactic fixes.
-- Provide complete `MetadataReference` to the Roslyn workspace (parsed from csproj + common framework libs).
-- Centralize exclusion rules (override, interface implementations, extern/DllImport, `Main`, `Dispose`, `ReleaseHandle`, serialization callbacks and `object` methods) in collection.
-- Use structured entries (class, method, parameter count, new name) to avoid collisions and handle overloads.
-- Persist changes to disk after successful semantic updates and a clean build.
+## Outputs
 
-## Rename safety rules
+Loaders writes artifacts inside the selected output folder:
 
-Loaders keeps a conservative non-rename list so semantic rewrites do not break framework, interop or external contracts:
+- transformed `.cs` files and patched `.csproj`;
+- `ObfuscationGenerated\StringStore.<id>.g.cs`;
+- `ObfuscationGenerated\StringStore.<id>.bin`;
+- direct Roslyn output `Output.exe`;
+- generated-project build outputs when the copied project is built with MSBuild;
+- `logs\`, `metrics\`, `class-map.csv`, and `compilation-errors.log` when produced.
 
-- Generated/designer files are skipped: `AssemblyInfo.cs`, `*.Designer.cs`, `*.g.cs`, `*.g.i.cs`, `*.Generated.cs`.
-- Constructors, destructors, operators and accessors are not renamed directly.
-- Common contract names are preserved: `Main`, `Dispose`, `ToString`, `GetHashCode`, `Equals`, and SafeHandle `ReleaseHandle`.
-- `override`, `extern`, `[DllImport]`, P/Invoke and serialization callback methods are skipped.
-- Members implementing interface contracts are skipped when Roslyn identifies them through `FindImplementationForInterfaceMember`.
-- Reflection/serialization-sensitive symbols with JSON, XML, DataContract, Newtonsoft, MessagePack, Proto/YAML and CLI option attributes are skipped.
-- SafeHandle-derived types may still be renamed, but mandatory framework members such as `ReleaseHandle()` and `IsInvalid` keep their original names.
-- Out-assignment helpers get their generated name when created and are skipped by later method/member rename when `--out-assignment-methods` is active.
+## Build And Run
 
-## Build & run
+This repository targets .NET Framework 4.8 and uses the legacy `packages.config` project format. Build from a Visual Studio 2022 Native Tools prompt, preferably x64:
 
-- Restore the legacy `packages.config` project and build it from the Visual Studio Native Tools Command Prompt.
-- Run the app with the required source and output directories:
+```text
+cmd /c "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" && msbuild "E:\Documents\GitHub\Loaders\Loaders.sln" /m /p:Configuration=Release /p:Platform=x64 /v:m /nologo
+```
+
+Then run:
 
 ```text
 Loaders.exe --source C:\path\to\source --output C:\path\to\output
 ```
 
-- Optional flags:
-  - `--out-assignment-methods`: rewrite safe local declarations such as `var dto = (ErrorDTO)result;` to generated helper calls with `out var`.
-  - `--rename-extended-symbols`: enable the wider semantic rename scope for namespaces, classes, structs, interfaces, enums, enum members, delegates, methods, properties, fields, events, parameters and locals.
-  - `--BeLeo`: generate obfuscated names from the embedded plain-text War and Peace resource instead of the default `Microsoft` + hash pattern. This changes only the name provider; it does not widen rename scope by itself.
-  - `--string-obfuscation-strategy <STRATEGY>`: force one string decoder strategy; omit it for per-literal auto selection. Valid values are `XorBase64`, `LcgBase64`, `GZipBase64`, `GZipLcgBase64`, `HexReverseXor`, `DecimalDelta`, `Utf16DeltaArrays`, `ShuffledUtf16Triplets`, `InterleavedMaskPairs`, `AffineBase64`, `BytePermutation`, `UInt64Packing`, `GuidPacking`, `BigIntegerPacking`, and `JunkedBase64`.
-- The source directory must contain exactly one `.csproj` file.
-- Source and output directories must be separate; output is recreated for each run.
-- File-based stages display percentage progress. Roslyn symbol renaming and compilation display a live status.
-- `class-map.csv` and `compilation-errors.log` are written inside the output directory.
-- Use `Loaders.exe --help` for the generated command-line help.
+## Safety Notes
 
-## Codecepticon scope comparison
+- Default and extended symbol renaming can expose project-specific edge cases in large codebases. Use `--skip-symbol-renaming` when validating only the string-resource pipeline.
+- Semantic renaming depends on accurate project metadata references.
+- Reflection, serialization, P/Invoke, generated files, and framework contract members are treated conservatively.
+- The generated string loader uses a project-local cache and does not call `string.Intern`.
 
-| Scope | Codecepticon C# rename | Loaders default | Loaders `--rename-extended-symbols` |
-| --- | --- | --- | --- |
-| Namespaces | Yes | No | Yes |
-| Classes | Yes | Yes | Yes |
-| Structs | Yes | No | Yes |
-| Interfaces | Collected as interface contracts for skips | No | Yes, as types |
-| Enums and enum members | Yes | No | Yes |
-| Delegates | Renamed through function mapping | No | Yes |
-| Methods/functions | Yes, with override/external/interface skips | Yes, conservative method pass | Yes, semantic member pass |
-| Properties | Yes, with override/interface skips | No | Yes |
-| Fields/events | Variables are collected syntactically | No | Yes |
-| Parameters | Yes | No | Yes |
-| Locals | Variables are collected syntactically | No | Yes |
+## Detailed Documentation
+
+- [Protector pipeline and flag behavior](docs/protector-pipeline.md)
+- [Project-wide string resource pipeline](docs/string-resource-pipeline.md)
+
+## Main Components
+
+- `InMemCompiler`: top-level orchestration, output handling, compilation, and CLI.
+- `ProjectStringObfuscator`: project-wide string collection, deduplication, rewrite, loader/resource generation.
+- `StringResourceCodecs`: binary payload codecs for all supported string strategies.
+- `StringResourceSerializer`: versioned binary resource format.
+- `StringResourceLoaderGenerator`: generated runtime loader source.
+- `StringResourceProjectPatcher`: idempotent `.csproj` integration.
+- `ExtendedSymbolRenameService`, `ClassRenamer`, `MethodRenamer`: symbol rename passes.
+- `OutAssignmentMethodService`: optional assignment-to-helper rewrite.
+- `Loaders.GAC`: assembly reference discovery.

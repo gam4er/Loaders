@@ -45,11 +45,13 @@ The current obfuscation pipeline already renames classes, strips comments, encry
 - **Implementation outline:**
   - Create a generator that attaches randomized attributes to classes and methods, ensuring they are defined in a stub `Attributes` namespace to avoid missing-reference issues.
 
-## 7. Resource-driven indirection
-- **Idea:** Move constant data (URLs, IDs, small lookup tables) into embedded resources and load them through helper APIs using `ResourceManager` and randomized keys.
-- **Rationale:** Removes recognizable constants from IL and forces analysis of resource blobs.
-- **Implementation outline:**
-  - Extend the string obfuscator to optionally emit encrypted payloads into `.resources` streams and decrypt them lazily at runtime.
+## 7. Project-wide string resource container
+- **Status:** Implemented for C# string literals. The pipeline now performs one project-wide string pass, deduplicates values globally, rewrites eligible literals to compact loader calls, and emits one versioned binary manifest resource per assembly.
+- **Rationale:** Removes bulky Base64/hex/decimal/array payload constants from generated source while keeping direct Roslyn emit and generated MSBuild projects aligned on the same manifest resource.
+- **Follow-up ideas:**
+  - Extend the dependency-aware codec contract with AES or other cryptographic codecs that declare their runtime assembly/NuGet requirements explicitly.
+  - Evaluate moving non-C# constants such as config, XAML, or `.resx` values into separate resource-backed passes.
+  - Add deterministic seeding as an optional profile mode for reproducible builds.
 
 ## 8. Build-time diversification
 - **Idea:** Add a configuration flag to randomize every build: different dummy classes, different overload shapes, and shuffled namespaces.

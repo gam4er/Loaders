@@ -71,7 +71,10 @@ namespace Loaders.Obfuscation.Services
                 "LoadersExtendedNamespaceRename",
                 "namespace rename",
                 nameProvider,
-                CollectNamespaceCandidates,
+                (project, generatedNames) => CollectNamespaceCandidates(
+                    project,
+                    generatedNames,
+                    new[] { projectInfo.RootNamespace }),
                 updateStatus);
 
             var typeCandidates = RunStage(
@@ -388,10 +391,15 @@ namespace Loaders.Obfuscation.Services
 
         private static IReadOnlyList<SymbolCandidate> CollectNamespaceCandidates(
             Project project,
-            IReadOnlyCollection<string> generatedNames)
+            IReadOnlyCollection<string> generatedNames,
+            IReadOnlyCollection<string> excludedNamespaceNames)
         {
             var candidates = new List<SymbolCandidate>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            var excluded = new HashSet<string>(
+                (excludedNamespaceNames ?? Array.Empty<string>())
+                    .Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.Ordinal);
 
             foreach (var document in GetCandidateDocuments(project))
             {
@@ -410,6 +418,7 @@ namespace Loaders.Obfuscation.Services
                         candidates,
                         seen,
                         generatedNames,
+                        excluded,
                         ExtendedDeclarationKind.Namespace,
                         document.FilePath);
                 }
@@ -422,6 +431,7 @@ namespace Loaders.Obfuscation.Services
                         candidates,
                         seen,
                         generatedNames,
+                        excluded,
                         ExtendedDeclarationKind.FileScopedNamespace,
                         document.FilePath);
                 }
@@ -645,12 +655,14 @@ namespace Loaders.Obfuscation.Services
             ICollection<SymbolCandidate> candidates,
             ISet<string> seen,
             IReadOnlyCollection<string> generatedNames,
+            ISet<string> excludedNamespaceNames,
             ExtendedDeclarationKind declarationKind,
             string filePath)
         {
             if (symbol == null ||
                 symbol.IsGlobalNamespace ||
-                string.IsNullOrWhiteSpace(symbol.Name))
+                string.IsNullOrWhiteSpace(symbol.Name) ||
+                excludedNamespaceNames.Contains(symbol.ToDisplayString(FullyQualifiedDisplay).Replace("global::", string.Empty)))
             {
                 return;
             }
